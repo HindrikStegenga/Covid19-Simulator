@@ -9,3 +9,5 @@ edition = "2018"
 [dependencies]
 serde = { version = "1.0.116", features = ["derive"] }
 serde_json = { version = "1.0.57" }
+plotters = "0.3.0"
+chrono = "0.4.18"
