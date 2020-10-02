@@ -39,6 +39,47 @@ fn generate_range(start: f32, end: f32, step: f32) -> Vec<f32> {
     vec
 }
 
+// sick_people(t)
+// dy/dx sick_people(t)
+
+// ^
+// RK 4 (45)
+// ^
+
+// dy/dx sick_people(t)
+// d2y/d2x sick_people(t)
+
+// sick_people(t = 0) = 10
+// total_people(t = 0) = 1000
+// infection_rate = 1.1 per day
+// cure_rate = 0.9
+// death_rate = 0.1
+// 100.0 / 14 = 7.14% //people recover/die in 14 days on average.
+
+// dy/dx sp(t) = sp(t) * infection_rate - 0.0714 * sp(t)
+
+fn calculate_change_in_sick_people(previous: f32, time: f32, h: f32) -> f32 {
+    let infection_rate = 1.1 * h;
+    previous * infection_rate - 0.0714 * previous
+}
+
+fn rk4(t0sick_people: f32, step_size: f32, total_days: u32) -> Vec<f32> {
+    let mut results = vec![t0sick_people];
+    let iterations = f32::floor(total_days as f32 / step_size) as usize;
+    for i in 0..iterations-1 {
+        results.push(rk4_impl(*results.last().unwrap(), i as f32 * step_size, step_size));
+    }
+
+    results
+}
+
+fn rk4_impl(value: f32, t: f32, h: f32) -> f32 {
+    let k1 = h * calculate_change_in_sick_people(value, t, h);
+    let k2 = h * calculate_change_in_sick_people(value + 0.5 * k1, t + 0.5 * h, h);
+    let k3 = h * calculate_change_in_sick_people(value + 0.5 * k2, t + 0.5 * h, h);
+    let k4 = h * calculate_change_in_sick_people(value + k3, t + h, h);
+    return value + ((1.0/6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4));
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 
@@ -49,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => { println!("Could not load file!"); return Err("Could not load file".into()) }
     };
     let graph = ProvinceGraph::from(file);
-    println!("{:#?}", graph);
+    //println!("{:#?}", graph);
 
     let file = match load_file::<Vec<AmountOfCasesPerTownshipPerDayRecord>>("./dataset/COVID-19_aantallen_gemeente_per_dag.json") {
         Some(v) => v,
@@ -96,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .caption("Test 2 Drawing",("sans-serif", 40).into_font())
         .x_label_area_size(20)
         .y_label_area_size(20)
-        .build_cartesian_2d(0f32..10f32, 0f32..10f32)?;
+        .build_cartesian_2d(0f32..1000f32, 0f32..1000f32)?;
 
     // Then we can draw a mesh
     chart
@@ -109,7 +150,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .draw()?;
 
 
-    let mut points : Vec<(f32, f32)> = generate_range(0.0,100.0, 0.1).into_iter().map(|c| (c,c)).collect();
+    let values = rk4(1.0, 0.1, 1000);
+    let mut points : Vec<(f32, f32)> = generate_range(0.0,1000.0, 0.1).into_iter().enumerate().map(|(i, c)| (c, values[i])).collect();
 
     chart.draw_series(LineSeries::new(points, &RED))?;
 
