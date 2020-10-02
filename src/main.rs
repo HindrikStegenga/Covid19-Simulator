@@ -45,6 +45,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(v) => v,
         None => { println!("Could not load file!"); return Err("Could not load file".into()) }
     };
+    
+     println!("{}", std::env::current_dir().unwrap().display());
+    let file = match load_file::<Vec<AmountOfCasesPerTownshipCumulative>>("./dataset/COVID-19_aantallen_gemeente_cumulatief.json") {
+        Some(v) => v,
+        None => { println!("Could not load file!"); return }
+    };
+    
+     println!("{}", std::env::current_dir().unwrap().display());
+    let file2 = match load_file::<Vec<NationalWideCases>>("./dataset/COVID-19_casus_landelijk.json") {
+       Some(v) => v,
+       None => { println!("Could not load file!"); return }
+       };
+   // println!("{:#?}", file2);
+
+    println!("{}", std::env::current_dir().unwrap().display());
+    let file3 = match load_file::<Vec<Prevalence>>("./dataset/COVID-19_prevalentie.json") {
+       Some(v) => v,
+       None => { println!("Could not load file!"); return }
+       };
+   // println!("{:#?}", file3);
+
+    println!("{}", std::env::current_dir().unwrap().display());
+    let file4 = match load_file::<Vec<ReproductionNumber>>("./dataset/COVID-19_reproductiegetal.json") {
+       Some(v) => v,
+       None => { println!("Could not load file!"); return }
+       };
+   // println!("{:#?}", file4);
+
+    println!("{}", std::env::current_dir().unwrap().display());
+    let file5 = match load_file::<Vec<SewageData>>("./dataset/COVID-19_rioolwaterdata.json") {
+       Some(v) => v,
+       None => { println!("Could not load file!"); return }
+       };
+   // println!("{:#?}", file5)
+
+
     let mut backend = BitMapBackend::new("./output/test.png", (800,600));
     let mut drawing_area = backend.into_drawing_area();
 
