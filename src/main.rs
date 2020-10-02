@@ -27,10 +27,46 @@ pub fn load_file<T: DeserializeOwned>(path: &str) -> Option<T> {
 
 fn main() {
     println!("{}", std::env::current_dir().unwrap().display());
-    let file = match load_file::<Vec<AmountOfCasesPerTownshipPerDayRecord>>("./dataset/COVID-19_aantallen_gemeente_per_dag.json") {
+    let file = match load_file::<Vec<AmountOfCasesPerTownshipCumulative>>("./dataset/COVID-19_aantallen_gemeente_cumulatief.json") {
         Some(v) => v,
         None => { println!("Could not load file!"); return }
     };
-    println!("{:#?}", file)
+     println!("{:#?}", file);
+
+    println!("{}", std::env::current_dir().unwrap().display());
+    let file1 = match load_file::<Vec<AmountOfCasesPerTownshipPerDayRecord>>("./dataset/COVID-19_aantallen_gemeente_per_dag.json") {
+        Some(v) => v,
+        None => { println!("Could not load file!"); return }
+    };
+     println!("{:#?}", file1);
+    
+    println!("{}", std::env::current_dir().unwrap().display());
+    let file2 = match load_file::<Vec<NationalWideCases>>("./dataset/COVID-19_casus_landelijk.json") {
+       Some(v) => v,
+       None => { println!("Could not load file!"); return }
+       };
+    println!("{:#?}", file2);
+
+    println!("{}", std::env::current_dir().unwrap().display());
+    let file3 = match load_file::<Vec<Prevalence>>("./dataset/COVID-19_prevalentie.json") {
+       Some(v) => v,
+       None => { println!("Could not load file!"); return }
+       };
+    println!("{:#?}", file3);
+
+    println!("{}", std::env::current_dir().unwrap().display());
+    let file4 = match load_file::<Vec<ReproductionNumber>>("./dataset/COVID-19_reproductiegetal.json") {
+       Some(v) => v,
+       None => { println!("Could not load file!"); return }
+       };
+    println!("{:#?}", file4);
+
+    println!("{}", std::env::current_dir().unwrap().display());
+    let file5 = match load_file::<Vec<SewageData>>("./dataset/COVID-19_rioolwaterdata.json") {
+       Some(v) => v,
+       None => { println!("Could not load file!"); return }
+       };
+    println!("{:#?}", file5)
+
 }
 
