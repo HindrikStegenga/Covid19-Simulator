@@ -1,0 +1,74 @@
+[
+  {
+    "name": "Groningen",
+    "population": 583990,
+    "density_per_square_km": 194,
+    "connected_provinces": ["Friesland", "Drenthe"]
+  },
+  {
+    "name": "Friesland",
+    "population": 647672,
+    "density_per_square_km": 194,
+    "connected_provinces": ["Groningen", "Drenthe", "Overijssel", "Noord-Holland"]
+  },
+  {
+    "name": "Drenthe",
+    "population": 492167,
+    "density_per_square_km": 187,
+    "connected_provinces": ["Groningen", "Friesland", "Overijssel", "Flevoland"]
+  },
+  {
+    "name": "Overijssel",
+    "population": 1156431,
+    "density_per_square_km": 348,
+    "connected_provinces": ["Groningen", "Drenthe", "Friesland", "Flevoland", "Gelderland"]
+  },
+  {
+    "name": "Flevoland",
+    "population": 416546,
+    "density_per_square_km": 295,
+    "connected_provinces": ["Friesland", "Gelderland", "Overijssel", "Noord-Holland", "Utrecht"]
+  },
+  {
+    "name": "Gelderland",
+    "population": 2071972,
+    "density_per_square_km": 417,
+    "connected_provinces": ["Flevoland", "Noord-Brabant", "Overijssel", "Limburg", "Utrecht", "Zuid-Holland"]
+  },
+  {
+    "name": "Utrecht",
+    "population": 1342158,
+    "density_per_square_km": 904,
+    "connected_provinces": ["Zuid-Holland", "Gelderland", "Flevoland", "Noord-Holland"]
+  },
+  {
+    "name": "Noord-Holland",
+    "population": 2853359,
+    "density_per_square_km": 1071,
+    "connected_provinces": ["Friesland", "Zuid-Holland", "Utrecht", "Flevoland"]
+  },
+  {
+    "name": "Zuid-Holland",
+    "population": 3673893,
+    "density_per_square_km": 1361,
+    "connected_provinces": ["Noord-Holland", "Utrecht", "Zeeland", "Noord-Brabant"]
+  },
+  {
+    "name": "Zeeland",
+    "population": 383032,
+    "density_per_square_km": 215,
+    "connected_provinces": ["Zuid-Holland", "Noord-Brabant"]
+  },
+  {
+    "name": "Noord-Brabant",
+    "population": 2544806,
+    "density_per_square_km": 519,
+    "connected_provinces": ["Zeeland", "Zuid-Holland", "Gelderland", "Limburg"]
+  },
+  {
+    "name": "Limburg",
+    "population": 1116137,
+    "density_per_square_km": 520,
+    "connected_provinces": ["Noord-Brabant", "Gelderland"]
+  }
+]
