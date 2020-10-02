@@ -6,6 +6,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use std::io::Read;
 
 use plotters::{*, prelude::*, drawing::*};
+use crate::graph::ProvinceGraph;
 
 
 pub fn load_file_bin(path: &str) -> Option<Vec<u8>> {
@@ -40,40 +41,44 @@ fn generate_range(start: f32, end: f32, step: f32) -> Vec<f32> {
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+
     println!("{}", std::env::current_dir().unwrap().display());
+
+    let file = match load_file::<Vec<ProvinceData>>("./dataset/provinces.json") {
+        Some(v) => v,
+        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
+    };
+    let graph = ProvinceGraph::from(file);
+    println!("{:#?}", graph);
+
     let file = match load_file::<Vec<AmountOfCasesPerTownshipPerDayRecord>>("./dataset/COVID-19_aantallen_gemeente_per_dag.json") {
         Some(v) => v,
         None => { println!("Could not load file!"); return Err("Could not load file".into()) }
     };
     
-     println!("{}", std::env::current_dir().unwrap().display());
     let file = match load_file::<Vec<AmountOfCasesPerTownshipCumulative>>("./dataset/COVID-19_aantallen_gemeente_cumulatief.json") {
         Some(v) => v,
         None => { println!("Could not load file!"); return Err("Could not load file".into()) }
     };
     
-     println!("{}", std::env::current_dir().unwrap().display());
     let file2 = match load_file::<Vec<NationalWideCases>>("./dataset/COVID-19_casus_landelijk.json") {
        Some(v) => v,
        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
        };
    // println!("{:#?}", file2);
 
-    println!("{}", std::env::current_dir().unwrap().display());
     let file3 = match load_file::<Vec<Prevalence>>("./dataset/COVID-19_prevalentie.json") {
        Some(v) => v,
        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
        };
    // println!("{:#?}", file3);
 
-    println!("{}", std::env::current_dir().unwrap().display());
     let file4 = match load_file::<Vec<ReproductionNumber>>("./dataset/COVID-19_reproductiegetal.json") {
        Some(v) => v,
        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
        };
    // println!("{:#?}", file4);
 
-    println!("{}", std::env::current_dir().unwrap().display());
     let file5 = match load_file::<Vec<SewageData>>("./dataset/COVID-19_rioolwaterdata.json") {
        Some(v) => v,
        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
