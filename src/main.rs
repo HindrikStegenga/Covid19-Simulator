@@ -58,27 +58,37 @@ fn generate_range(start: f32, end: f32, step: f32) -> Vec<f32> {
 
 // dy/dx sp(t) = sp(t) * infection_rate - 0.0714 * sp(t)
 
+//S' = -aSI
+//R'= aSI - bI
+//I' = bI
+
 fn calculate_change_in_sick_people(previous: f32, time: f32, h: f32) -> f32 {
     let infection_rate = 1.1 * h;
     previous * infection_rate - 0.0714 * previous
 }
 
-fn rk4(t0sick_people: f32, step_size: f32, total_days: u32) -> Vec<f32> {
-    let mut results = vec![t0sick_people];
+fn rate_of_change_with_time(previous: &Vec<f32>, time: f32, h: f32) -> Vec<f32> {
+    let previous_infected_people= previous[0];
+    let infection_rate = 1.1 * h;
+    vec![previous_infected_people * infection_rate - 0.0714 * previous_infected_people]
+}
+
+fn rk4(t0: Vec<f32>, step_size: f32, total_days: u32, f: fn(&Vec<f32>,f32,f32)->Vec<f32>) -> Vec<Vec<f32>> {
+    let mut results = vec![t0];
     let iterations = f32::floor(total_days as f32 / step_size) as usize;
     for i in 0..iterations-1 {
-        results.push(rk4_impl(*results.last().unwrap(), i as f32 * step_size, step_size));
+        results.push(rk4_impl(results.last().unwrap(), i as f32 * step_size, step_size, f));
     }
 
     results
 }
 
-fn rk4_impl(value: f32, t: f32, h: f32) -> f32 {
-    let k1 = h * calculate_change_in_sick_people(value, t, h);
-    let k2 = h * calculate_change_in_sick_people(value + 0.5 * k1, t + 0.5 * h, h);
-    let k3 = h * calculate_change_in_sick_people(value + 0.5 * k2, t + 0.5 * h, h);
-    let k4 = h * calculate_change_in_sick_people(value + k3, t + h, h);
-    return value + ((1.0/6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4));
+fn rk4_impl(value:&Vec<f32>, t: f32, h: f32, f: fn(&Vec<f32>,f32,f32)->Vec<f32>) -> Vec<f32> {
+    let k1: Vec<f32> = f(value, t, h).iter().map(|e|e*h).collect();
+    let k2: Vec<f32> = f(&value.iter().enumerate().map(|(idx, e)| e + 0.5 * k1[idx]).collect(), t + 0.5 * h, h).iter().map(|e|e*h).collect();
+    let k3: Vec<f32> = f(&value.iter().enumerate().map(|(idx, e)| e + 0.5 * k2[idx]).collect(), t + 0.5 * h, h).iter().map(|e|e*h).collect();
+    let k4: Vec<f32> = f(&value.iter().enumerate().map(|(idx, e)| e + k3[idx]).collect(), t + h, h).iter().map(|e|e*h).collect();
+    return value.iter().enumerate().map(|(idx,e)| e + {(1.0/6.0) * (k1[idx] + 2.0 * k2[idx] + 2.0 * k3[idx] + k4[idx])}).collect();
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -96,35 +106,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(v) => v,
         None => { println!("Could not load file!"); return Err("Could not load file".into()) }
     };
-    
+
     let file = match load_file::<Vec<AmountOfCasesPerTownshipCumulative>>("./dataset/COVID-19_aantallen_gemeente_cumulatief.json") {
         Some(v) => v,
         None => { println!("Could not load file!"); return Err("Could not load file".into()) }
     };
-    
+
     let file2 = match load_file::<Vec<NationalWideCases>>("./dataset/COVID-19_casus_landelijk.json") {
-       Some(v) => v,
-       None => { println!("Could not load file!"); return Err("Could not load file".into()) }
-       };
-   // println!("{:#?}", file2);
+        Some(v) => v,
+        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
+    };
+    // println!("{:#?}", file2);
 
     let file3 = match load_file::<Vec<Prevalence>>("./dataset/COVID-19_prevalentie.json") {
-       Some(v) => v,
-       None => { println!("Could not load file!"); return Err("Could not load file".into()) }
-       };
-   // println!("{:#?}", file3);
+        Some(v) => v,
+        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
+    };
+    // println!("{:#?}", file3);
 
     let file4 = match load_file::<Vec<ReproductionNumber>>("./dataset/COVID-19_reproductiegetal.json") {
-       Some(v) => v,
-       None => { println!("Could not load file!"); return Err("Could not load file".into()) }
-       };
-   // println!("{:#?}", file4);
+        Some(v) => v,
+        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
+    };
+    // println!("{:#?}", file4);
 
     let file5 = match load_file::<Vec<SewageData>>("./dataset/COVID-19_rioolwaterdata.json") {
-       Some(v) => v,
-       None => { println!("Could not load file!"); return Err("Could not load file".into()) }
-       };
-   // println!("{:#?}", file5)
+        Some(v) => v,
+        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
+    };
+    // println!("{:#?}", file5)
 
 
     let mut backend = BitMapBackend::new("./output/test.png", (800,600));
@@ -150,13 +160,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .draw()?;
 
 
-    let values = rk4(1.0, 0.1, 1000);
-    let mut points : Vec<(f32, f32)> = generate_range(0.0,1000.0, 0.1).into_iter().enumerate().map(|(i, c)| (c, values[i])).collect();
+    let values = rk4(vec![1.0], 0.1, 1000, rate_of_change_with_time);
+
+    let mut points : Vec<(f32, f32)> = generate_range(0.0,1000.0, 0.1).into_iter().enumerate().map(|(i, c)| (c, values[i][0])).collect();
 
     chart.draw_series(LineSeries::new(points, &RED))?;
 
 
-    //println!("{:#?}", file);
+    //println!("{:#?}", values);
     Ok(())
 }
 
