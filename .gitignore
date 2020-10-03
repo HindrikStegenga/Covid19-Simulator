@@ -1,2 +1,12 @@
 /target/
 /output/
+
+.idea/Covid19-Simulator.iml
+
+.idea/encodings.xml
+
+.idea/modules.xml
+
+.idea/vcs.xml
+
+.idea/workspace.xml

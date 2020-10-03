@@ -115,7 +115,7 @@ pub struct NationalWideCases {
     "prev_low":99822,
     "prev_avg":120072,
     "prev_up":138037,
-    "population":"hosp"
+    "POPULATION":"hosp"
  }
  */
 
@@ -129,7 +129,7 @@ pub struct Prevalence {
     prev_avg: Option<u64>,
     #[serde(alias = "prev_up")]
     prev_up: Option<u64>,
-    #[serde(alias = "population")]
+    #[serde(alias = "POPULATION")]
     population: String
     
 }
@@ -140,7 +140,7 @@ pub struct Prevalence {
    "Rt_low":0.43,
    "Rt_avg":0.72,
    "Rt_up":1.03,
-   "population":"hosp"
+   "POPULATION":"hosp"
  }
  */
 
@@ -154,7 +154,7 @@ pub struct ReproductionNumber {
     rt_avg: Option<f32>,
     #[serde(alias = "Rt_up")]
     rt_up: Option<f32>,
-    #[serde(alias = "population")]
+    #[serde(alias = "POPULATION")]
     population: String
     
 }

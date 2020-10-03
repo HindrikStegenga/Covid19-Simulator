@@ -6,7 +6,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use std::io::Read;
 
 use plotters::{*, prelude::*, drawing::*};
-use crate::graph::ProvinceGraph;
+//use crate::graph::ProvinceGraph;
 
 
 pub fn load_file_bin(path: &str) -> Option<Vec<u8>> {
@@ -58,30 +58,66 @@ fn generate_range(start: f32, end: f32, step: f32) -> Vec<f32> {
 
 // dy/dx sp(t) = sp(t) * infection_rate - 0.0714 * sp(t)
 
-//population=1000
-//no of sic <= population
+//POPULATION=1000
+//no of sic <= POPULATION
 //excluded_ppl become immune/ die
 //sick+exc+S=1000
-//population-(sick+exc) then infect =0 
+//POPULATION-(sick+exc) then infect =0
 //S' = -aSI
 //R'= aSI - bI
 //I' = bI
 //14 days 
 
-const population : f32 = 1000.0;
+
+//I = infected people, S = susceptible people, P = population, R = recovered/dead people, F = base rate of infection / per day per person.
+
+// I(t+1) = P - S * I(t) * F
+// S = P - (R + I)
+// R = ?
+// F = infection rate
+
+//I(t+1)
+//S(t+1) =
+//R(t+1)
+
+//t(0) => S = P - I
+//t(0) => I = 3
+
+
+//I(t)' = I(t) * f? - (healing * I(t))
+//I(t)'' = function of F, S, I and P
+//I(t)'' = I(t)' > S(t) or not. S(t) < I(t') =>
+
+
+//S(t) = P - (R(t) + I(I))
+
+
+//S(t)' = P - S(t) * I(t) - R(t)
+//R(t)' = 0.0714 * I(t)
+
+const TIME: usize = 1000;
+const BASE_INFECTION_RATE : f32 = 0.1;
+const BASE_RECOVERY_RATE : f32 = 0.0714; // every 14 days a person recovers on average
+const POPULATION: f32 = 1000.0;
+const DEATH_CHANCE: f32 = 0.2;
 
 fn rate_of_change_with_time(previous: &Vec<f32>, time: f32, h: f32) -> Vec<f32> {
-    let previous_infected_people = previous[0];
-    let susceptable_population = previous[1];
-    let infection_rate = 1.1 * h;
+    // I
+    // R
+    let infected = previous[0];
+    let recovered = previous[1];
+    let susceptible = POPULATION - (infected + recovered);
+
+
     vec![
-        previous_infected_people * infection_rate - 0.0714 * previous_infected_people, 
-        population
- //      population-previous_infected_people,
-        ]
+        // dy/dx I
+        // dy/dx R
+        f32::min(infected, susceptible) * (BASE_INFECTION_RATE * h),
+        infected * (BASE_RECOVERY_RATE * h)
+    ]
 }
 
-fn rk4(t0: Vec<f32>, step_size: f32, total_days: u32, f: fn(&Vec<f32>,f32,f32)->Vec<f32>) -> Vec<Vec<f32>> {
+fn rk4(t0: Vec<f32>, step_size: f32, total_days: u32, f: fn(&Vec<f32>, f32, f32) ->Vec<f32>) -> Vec<Vec<f32>> {
     let mut results = vec![t0];
     let iterations = f32::floor(total_days as f32 / step_size) as usize;
     for i in 0..iterations-1 {
@@ -100,7 +136,7 @@ fn rk4_impl(value:&Vec<f32>, t: f32, h: f32, f: fn(&Vec<f32>,f32,f32)->Vec<f32>)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-
+    /*
     println!("{}", std::env::current_dir().unwrap().display());
 
     let file = match load_file::<Vec<ProvinceData>>("./dataset/provinces.json") {
@@ -143,9 +179,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => { println!("Could not load file!"); return Err("Could not load file".into()) }
     };
     // println!("{:#?}", file5)
+    */
 
-
-    let mut backend = BitMapBackend::new("./output/test.png", (800,600));
+    let mut backend = BitMapBackend::new("./output/test.png", (1024,800));
     let mut drawing_area = backend.into_drawing_area();
 
     drawing_area.fill(&WHITE);
@@ -155,7 +191,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .caption("Test 2 Drawing",("sans-serif", 40).into_font())
         .x_label_area_size(20)
         .y_label_area_size(20)
-        .build_cartesian_2d(0f32..1000f32, 0f32..1000f32)?;
+        .build_cartesian_2d(0f32..TIME as f32, -250f32..(POPULATION + 0.1 * POPULATION))?;
 
     // Then we can draw a mesh
     chart
@@ -167,16 +203,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .y_label_formatter(&|x| format!("{:.3}", x))
         .draw()?;
 
-    let t0 = vec![1.0,population];
-    let values = rk4(t0.clone(), 0.1, 1000, rate_of_change_with_time);
+    let t0 : Vec<f32> = vec![1.0, 0.0];
+    let mut values = rk4(t0.clone(), 0.1, TIME as u32, rate_of_change_with_time);
+    values.iter_mut().for_each(|e| e.push(POPULATION - (e[0] + e[1])));
+    let colors = [&RED, &BLACK, &BLUE];
+    let labels = ["Infected", "Recovered/Dead", "Susceptible"];
+    for idx in 0..(t0.len() + 1) {
 
-    for idx in 0..t0.len() {
+        let mut points : Vec<(f32, f32)> = generate_range(0.0,TIME as f32, 0.1).into_iter().enumerate().map(|(i, c)| (c, values[i][idx])).collect();
 
-        let mut points : Vec<(f32, f32)> = generate_range(0.0,1000.0, 0.1).into_iter().enumerate().map(|(i, c)| (c, values[i][idx])).collect();
-
-        chart.draw_series(LineSeries::new(points, &RED))?;
+        chart.draw_series(LineSeries::new(points, colors[idx]))?
+            .label(labels[idx])
+            .legend( move |(x, y)|
+                    PathElement::new(vec![(x, y), (x + 20, y)], colors[idx])
+            );
     }
-    
+    chart
+        .configure_series_labels()
+        .background_style(&WHITE.mix(0.8))
+        .border_style(&BLACK)
+        .draw()?;
 
     //println!("{:#?}", values);
     Ok(())
