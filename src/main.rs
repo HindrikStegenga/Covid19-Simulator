@@ -95,43 +95,61 @@ fn generate_range(start: f32, end: f32, step: f32) -> Vec<f32> {
 //S(t)' = P - S(t) * I(t) - R(t)
 //R(t)' = 0.0714 * I(t)
 
-const TIME: usize = 1000;
-const BASE_INFECTION_RATE : f32 = 0.1;
-const BASE_RECOVERY_RATE : f32 = 0.0714; // every 14 days a person recovers on average
+const TIME: usize = 200;
+const BASE_INFECTION_RATE : f32 = 0.5;
+const BASE_RECOVERY_RATE : f32 = 1.0; // every 14 days a person recovers on average
 const POPULATION: f32 = 1000.0;
 const DEATH_CHANCE: f32 = 0.2;
+const TIME_DELAY_RECOVERY: usize = 14;
 
-fn rate_of_change_with_time(previous: &Vec<f32>, time: f32, h: f32) -> Vec<f32> {
+
+fn rate_of_change_with_time(previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> Vec<f32> {
     // I
     // R
     let infected = previous[0];
     let recovered = previous[1];
     let susceptible = POPULATION - (infected + recovered);
 
+    let delta_infected = previous_data[previous_data.len() - ((TIME_DELAY_RECOVERY as f32 / h) as usize)][0];
+    let delta_recovered = previous_data[previous_data.len() - ((TIME_DELAY_RECOVERY as f32 / h) as usize)][1];
+    let delta_susceptible = POPULATION - (delta_infected + delta_recovered);
 
-    vec![
-        // dy/dx I
-        // dy/dx R
-        f32::min(infected, susceptible) * (BASE_INFECTION_RATE * h),
-        infected * (BASE_RECOVERY_RATE * h)
-    ]
+    let prop_infected = infected / POPULATION;
+    let prop_recovered = recovered / POPULATION;
+    let prop_susceptible = susceptible / POPULATION;
+
+    let delta_prop_recovered = delta_recovered / POPULATION;
+    let delta_prop_infected = delta_infected / POPULATION;
+    let delta_prop_susceptible = delta_susceptible / POPULATION;
+
+    let mut dydx = vec![
+        infected * BASE_INFECTION_RATE * h * prop_susceptible,
+        delta_infected * BASE_RECOVERY_RATE * h * (1.0 - prop_recovered - prop_infected),
+    ];
+    dydx
 }
 
-fn rk4(t0: Vec<f32>, step_size: f32, total_days: u32, f: fn(&Vec<f32>, f32, f32) ->Vec<f32>) -> Vec<Vec<f32>> {
-    let mut results = vec![t0];
+fn rk4(t0: Vec<f32>, step_size: f32, total_days: u32, f: fn(&Vec<f32>, &[Vec<f32>],  f32, f32) -> Vec<f32>) -> Vec<Vec<f32>> {
+    let initial_zero_values = ((TIME_DELAY_RECOVERY as f32 / step_size) as usize) + 1;
+    let mut results = vec![vec![0.0f32; t0.len()]; initial_zero_values];
+    results.push(t0);
     let iterations = f32::floor(total_days as f32 / step_size) as usize;
     for i in 0..iterations-1 {
-        results.push(rk4_impl(results.last().unwrap(), i as f32 * step_size, step_size, f));
+
+
+        let (pr, last) = results.split_at(results.len() - 1);
+
+        results.push(rk4_impl(last.first().unwrap(), pr,i as f32 * step_size, step_size, f));
     }
 
-    results
+    results.split_at(initial_zero_values).1.to_vec()
 }
 
-fn rk4_impl(value:&Vec<f32>, t: f32, h: f32, f: fn(&Vec<f32>,f32,f32)->Vec<f32>) -> Vec<f32> {
-    let k1: Vec<f32> = f(value, t, h).iter().map(|e|e*h).collect();
-    let k2: Vec<f32> = f(&value.iter().enumerate().map(|(idx, e)| e + 0.5 * k1[idx]).collect(), t + 0.5 * h, h).iter().map(|e|e*h).collect();
-    let k3: Vec<f32> = f(&value.iter().enumerate().map(|(idx, e)| e + 0.5 * k2[idx]).collect(), t + 0.5 * h, h).iter().map(|e|e*h).collect();
-    let k4: Vec<f32> = f(&value.iter().enumerate().map(|(idx, e)| e + k3[idx]).collect(), t + h, h).iter().map(|e|e*h).collect();
+fn rk4_impl(value:&Vec<f32>, previous_data: &[Vec<f32>], t: f32, h: f32, f: fn(&Vec<f32>, &[Vec<f32>], f32, f32)->Vec<f32>) -> Vec<f32> {
+    let k1: Vec<f32> = f(value, previous_data, t, h).iter().map(|e|e*h).collect();
+    let k2: Vec<f32> = f(&value.iter().enumerate().map(|(idx, e)| e + 0.5 * k1[idx]).collect(), previous_data, t + 0.5 * h, h).iter().map(|e|e*h).collect();
+    let k3: Vec<f32> = f(&value.iter().enumerate().map(|(idx, e)| e + 0.5 * k2[idx]).collect(), previous_data, t + 0.5 * h, h).iter().map(|e|e*h).collect();
+    let k4: Vec<f32> = f(&value.iter().enumerate().map(|(idx, e)| e + k3[idx]).collect(), previous_data, t + h, h).iter().map(|e|e*h).collect();
     return value.iter().enumerate().map(|(idx,e)| e + {(1.0/6.0) * (k1[idx] + 2.0 * k2[idx] + 2.0 * k3[idx] + k4[idx])}).collect();
 }
 
