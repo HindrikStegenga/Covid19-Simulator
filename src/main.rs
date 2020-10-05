@@ -55,9 +55,11 @@ fn generate_range(start: f32, end: f32, step: f32) -> Vec<f32> {
 
 const TIMESPAN_IN_DAYS: usize = 500;
 const INFECTION_RATE: f32 = 1.1;
-const RECOVERY_RATE: f32 = 0.0714;
+const RECOVERY_RATE: f32 = 0.0714; //People recover on average in 14 days
 
-const POPULATION: f32 = 1000.0;
+const POPULATION: u32 = 1000;
+const INITIAL_SPREADERS: u32 = 1;
+
 const DEATH_CHANCE: f32 = 0.2;
 const TIME_DELAY_RECOVERY: usize = 14;
 
@@ -85,18 +87,22 @@ fn rate_of_change_with_time(previous: &Vec<f32>, previous_data: &[Vec<f32>], tim
     //k is recovery period.
     //b is rate of infection.
 
-    let susceptible = previous[0];
-    let infected = previous[1];
-    let recovered = previous[2];
+    let abs_susceptible = previous[0];
+    let abs_infected = previous[1];
+
+    let susceptible = abs_susceptible / POPULATION as f32;
+    let infected = abs_infected / POPULATION as f32;
+    // not used in computation.
+    //let recovered = previous[2];
 
     let delta_susceptible = previous_data[previous_data.len() - ((TIME_DELAY_RECOVERY as f32 / h) as usize)][0];
     let delta_infected = previous_data[previous_data.len() - ((TIME_DELAY_RECOVERY as f32 / h) as usize)][1];
     let delta_recovered = previous_data[previous_data.len() - ((TIME_DELAY_RECOVERY as f32 / h) as usize)][2];
 
     let dydx = vec![
-        h * (-1.0 * (INFECTION_RATE) * susceptible * infected),
-        h * (INFECTION_RATE * susceptible * infected - RECOVERY_RATE * infected),
-        h * (RECOVERY_RATE * infected)
+        POPULATION as f32 * h * (-1.0 * (INFECTION_RATE) * susceptible * infected),
+        POPULATION as f32 * h * (INFECTION_RATE * susceptible * infected - RECOVERY_RATE * infected),
+        POPULATION as f32 * h * (RECOVERY_RATE * infected)
     ];
     dydx
 }
@@ -185,11 +191,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     drawing_area = drawing_area.margin(50,50,50,50);
 
     let mut chart = ChartBuilder::on(&drawing_area)
-        .caption("SIR Model",("sans-serif", 40).into_font())
+        .caption(&format!("SIR infection rate: {:.1}, recovery in days: {:.1}", INFECTION_RATE, (1.0 / RECOVERY_RATE)),("sans-serif", 40).into_font())
         .x_label_area_size(20)
         .y_label_area_size(20)
-        .build_cartesian_2d(0f32..TIMESPAN_IN_DAYS as f32, 0f32..1.0)?;
-    //.build_cartesian_2d(0f32..TIME as f32, -250f32..(POPULATION + 0.1 * POPULATION))?;
+        //.build_cartesian_2d(0f32..TIMESPAN_IN_DAYS as f32, 0f32..1.0)?;
+        .build_cartesian_2d(0f32..TIMESPAN_IN_DAYS as f32, 0f32..(POPULATION as f32+ 0.05 * POPULATION as f32))?;
 
     // Then we can draw a mesh
     chart
@@ -202,8 +208,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .draw()?;
 
     let t0 : Vec<InitialValue> = vec![
-        InitialValue { value: 0.99, repeating_before: 0.0 }, //Susceptible people
-        InitialValue { value: 0.01, repeating_before: 0.0 }, //Infected people
+        InitialValue { value: (POPULATION - INITIAL_SPREADERS) as f32, repeating_before: 0.0 }, //Susceptible people
+        InitialValue { value: INITIAL_SPREADERS as f32, repeating_before: 0.0 }, //Infected people
         InitialValue { value: 0.0, repeating_before: 0.0 }, //Recovered people
     ];
     let t0len = t0.len();
