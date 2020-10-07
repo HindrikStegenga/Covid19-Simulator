@@ -96,33 +96,27 @@ fn rate_of_change_with_time(previous: &Vec<f32>, previous_data: &[Vec<f32>], tim
     //b is rate of infection.
     //d is chance of dying once infected.
 
-    let abs_susceptible = previous[0];
-    let abs_infected = previous[1];
+    let susceptible = previous[0];
+    let infected = previous[1];
 
     // not used in computation.
     //let abs_recovered = previous[2];
     //let abs_died = previous[3];
-
-    // Our computation is done in relative 0-1 scale to make it easier for us to understand.
-    // As such, we need to adjust for population size
-    let susceptible = abs_susceptible / POPULATION as f32;
-    let infected = abs_infected / POPULATION as f32;
-
 
     //let delta_susceptible = previous_data[previous_data.len() - ((TIME_DELAY_RECOVERY as f32 / h) as usize)][0];
     //let delta_infected = previous_data[previous_data.len() - ((TIME_DELAY_RECOVERY as f32 / h) as usize)][1];
     //let delta_recovered = previous_data[previous_data.len() - ((TIME_DELAY_RECOVERY as f32 / h) as usize)][2];
 
     let mut dydx = vec![
-        /*s*/ (-1.0 * (INFECTION_RATE) * susceptible * infected),
-        /*i*/ (INFECTION_RATE * susceptible * infected - RECOVERY_RATE * infected),
+        /*s*/ (-1.0 * (((INFECTION_RATE) * susceptible * infected) / POPULATION as f32)),
+        /*i*/ (((INFECTION_RATE * susceptible * infected) / POPULATION as f32) - RECOVERY_RATE * infected),
         /*r*/ (RECOVERY_RATE * infected) * (1.0 - DEATH_CHANCE),
         /*d*/ (RECOVERY_RATE * infected) * DEATH_CHANCE
     ];
 
     // Adjust for actual population values and time step h for the integrator
     for v in &mut dydx {
-        *v *= (POPULATION as f32 * h);
+        *v *= h;
     }
 
     dydx
