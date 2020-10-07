@@ -54,7 +54,7 @@ fn generate_range(start: f32, end: f32, step: f32) -> Vec<f32> {
 }
 
 const TIMESPAN_IN_DAYS: usize = 500;
-const INFECTION_RATE: f32 = 1.1;
+const INFECTION_RATE: f32 = 0.25;
 const RECOVERY_RATE: f32 = 0.0714; //People recover on average in 14 days
 
 const POPULATION: u32 = 1000;
@@ -68,24 +68,29 @@ fn rate_of_change_with_time(previous: &Vec<f32>, previous_data: &[Vec<f32>], tim
     // S(t) is susceptible
     // I(t) is infected
     // R(t) is recovered
-
+    // D(t) is deaths
 
     // P is population
     // s(t) = S(t) / P
     // i(t) = I(t) / P
     // r(t) = R(t) / P
+    // d(t) = D(t) / P
 
     // Susceptible equation
     // ds/dt = -b s(t) * i(t)
 
     // Recovered equation
-    // dr/dt = k i(t)
+    // dr/dt = k i(t) * (1.0 - d)
+
+    // Death equation
+    // dd/dt = k i(t) * d
 
     // Infected equation
     // di/dt = b s(t) i(t) - k i(t)
 
     //k is recovery period.
     //b is rate of infection.
+    //d is chance of dying.
 
     let abs_susceptible = previous[0];
     let abs_infected = previous[1];
@@ -99,12 +104,12 @@ fn rate_of_change_with_time(previous: &Vec<f32>, previous_data: &[Vec<f32>], tim
     let delta_infected = previous_data[previous_data.len() - ((TIME_DELAY_RECOVERY as f32 / h) as usize)][1];
     let delta_recovered = previous_data[previous_data.len() - ((TIME_DELAY_RECOVERY as f32 / h) as usize)][2];
 
-    let dydx = vec![
+    vec![
         POPULATION as f32 * h * (-1.0 * (INFECTION_RATE) * susceptible * infected),
         POPULATION as f32 * h * (INFECTION_RATE * susceptible * infected - RECOVERY_RATE * infected),
-        POPULATION as f32 * h * (RECOVERY_RATE * infected)
-    ];
-    dydx
+        POPULATION as f32 * h * (RECOVERY_RATE * infected) * (1.0 - DEATH_CHANCE),
+        POPULATION as f32 * h * (RECOVERY_RATE * infected) * DEATH_CHANCE
+    ]
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -210,14 +215,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let t0 : Vec<InitialValue> = vec![
         InitialValue { value: (POPULATION - INITIAL_SPREADERS) as f32, repeating_before: 0.0 }, //Susceptible people
         InitialValue { value: INITIAL_SPREADERS as f32, repeating_before: 0.0 }, //Infected people
-        InitialValue { value: 0.0, repeating_before: 0.0 }, //Recovered people
+        InitialValue { value: 0.0, repeating_before: 0.0 }, //Recovered people,
+        InitialValue { value: 0.0, repeating_before: 0.0 } //Dead people
     ];
     let t0len = t0.len();
 
     let mut values = rk4(t0, 0.1, TIMESPAN_IN_DAYS as u32, rate_of_change_with_time);
-    //values.iter_mut().for_each(|e| e.push(POPULATION - (e[0] + e[1])));
-    let colors = [&ORANGE, &RED, &GREEN, &GREEN, &BLUE, &BLACK];
-    let labels = ["Susceptible", "Infected", "Recovered", "Total infected", "Total recovered/dead", "Total susceptible"];
+    let colors = [&ORANGE, &RED, &GREEN, &BLACK];
+    let labels = ["Susceptible", "Infected", "Recovered", "Dead"];
     for idx in 0..t0len {
 
         let mut points : Vec<(f32, f32)> = generate_range(0.0, TIMESPAN_IN_DAYS as f32, 0.1).into_iter().enumerate().map(|(i, c)| (c, values[i][idx])).collect();
