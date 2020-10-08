@@ -57,16 +57,16 @@ fn generate_range(start: f32, end: f32, step: f32) -> Vec<f32> {
 }
 
 const TIMESPAN_IN_DAYS: usize = 1000;
-const INFECTION_RATE: f32 = 1.1;
-const RECOVERY_RATE: f32 = 0.0714; //People recover on average in 14 days
+const INFECTION_RATE: f32 = 1.0;
+const RECOVERY_RATE: f32 = 1.0 / (TIME_DELAY_RECOVERY as f32); //People recover on average in 14 days
 
-const INITIAL_POPULATION: u32 = 1000;
+const INITIAL_POPULATION: u32 = 1_000_000;
 const INITIAL_SPREADERS: u32 = 1;
 
-const DEATH_CHANCE: f32 = 0.8;
+const DEATH_CHANCE: f32 = 0.6;
 const TIME_DELAY_RECOVERY: usize = 14;
 const BIRTH_RATE: f32 = 0.011;
-const DEATH_RATE: f32 = 0.006;
+const DEATH_RATE: f32 = 0.005;
 
 fn rate_of_change_with_time(previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> Vec<f32> {
     // S(t) is susceptible
@@ -213,7 +213,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut values = rk4(t0, 0.1, TIMESPAN_IN_DAYS as u32, rate_of_change_with_time);
 
-    let max_pop : f32 = values.last().unwrap().iter().map(|f| NonNanF32::new(*f) ).max().unwrap().unwrap().0;
+    let max_pop : f32 = values.iter().map(|v| NonNanF32(v[4])).max().unwrap().0;
 
     let mut backend = BitMapBackend::new("./output/test.png", (1680,1440));
     let mut drawing_area = backend.into_drawing_area();
