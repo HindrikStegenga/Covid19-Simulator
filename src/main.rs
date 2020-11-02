@@ -10,6 +10,10 @@ use std::io::Read;
 use plotters::{*, prelude::*, drawing::*};
 use crate::NonNanF32;
 
+const fn foobar(a: u32, b: u32) -> u32 {
+    a * b
+}
+
 macro_rules! predefined_color {
     ($name:ident, $r:expr, $g:expr, $b:expr, $doc:expr) => {
         #[doc = $doc]
@@ -56,19 +60,24 @@ fn generate_range(start: f32, end: f32, step: f32) -> Vec<f32> {
     vec
 }
 
-const TIMESPAN_IN_DAYS: usize = 1500;
-const INITIAL_POPULATION: u32 = 1_00;
-const INITIAL_SPREADERS: u32 = 1;
+const TIMESPAN_IN_DAYS: usize = 400;
+const INITIAL_POPULATION: u32 = 1_000;
+const INITIAL_SPREADERS: u32 = 50;
 
 const NATURAL_BIRTH_RATE: f32 = 0.011 / 365.0; // 6% growth a year
 const NATURAL_DEATH_RATE: f32 = 0.005 / 365.0;
 
-const RECOVERY_PERIOD: usize = 14; // Time it takes for infected people to recover or die.
+const DISEASE_PERIOD: usize = 14; // Time it takes for infected people to recover or die.
 const INCUBATION_PERIOD: usize = 7; // Time it takes for exposed people to become sick + infectious.
 const MORTALITY_RATE: f32 = 0.25; // Percentage of infected people who die.
 
-const R_NAUGHT: f32 = 1.0; // R naught, i.e. amount of infected people per infected
+const R_NAUGHT: f32 = 2.0; // 2.0 = t / (1.0/incubation_period)
+const HOSPITALIZATION_RATE: f32 = 0.25; //Amount of recovering people ending up in hospital, thus counting towards max hospital cap.
 
+const MAX_HOSPITAL_CAPACITY: f32 = 25.0; // Absolute amount of hospital capacity
+const LOCKDOWN_TRIGGER_FRACTION: f32 = 0.6; // Fraction at which lockdown is imposed
+const LOCKDOWN_LIFTING_FRACTION: f32 = 0.4; // Fraction at which lockdown is lifted
+const LOCKDOWN_EFFECTIVENESS: f32 = 0.45; // Fraction as to how effective the lockdown is.
 
 fn rate_of_change_with_time(previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> Vec<f32> {
     // S(t) is susceptible
@@ -112,20 +121,39 @@ fn rate_of_change_with_time(previous: &Vec<f32>, previous_data: &[Vec<f32>], tim
     let recovered = previous[3];
     // let dead = previous[4];
     let population = previous[5];
+    //let hospitalizations = previous[6];
 
     const PI : f32 = std::f32::consts::PI;
 
-    let transmission_rate = R_NAUGHT; // Change of s to e
+    let hospitalizations_delayed = previous_data[previous_data.len() - ((INCUBATION_PERIOD as f32 / h) as usize)][6];
+    let population_delayed = previous_data[previous_data.len() - ((INCUBATION_PERIOD as f32 / h) as usize)][5];
+
+    let mut measures_change = 0.0;
+    if infected > population_delayed / 100.0 {
+        measures_change += 0.1;
+    }
+    if hospitalizations_delayed >= 0.4 * MAX_HOSPITAL_CAPACITY {
+        measures_change += 0.4;
+    }
+    if hospitalizations_delayed >= LOCKDOWN_TRIGGER_FRACTION * MAX_HOSPITAL_CAPACITY {
+        measures_change += LOCKDOWN_EFFECTIVENESS;
+    }
+
+    // 2.0 = t / (1.0/incubation_period)
+    let base_transmission_rate = R_NAUGHT * (1.0 / INCUBATION_PERIOD as f32);
+
+    let mut transmission_rate = base_transmission_rate * (1.0 - measures_change); // Change of s to e
     let infectiousness_rate = 1.0 / (INCUBATION_PERIOD as f32); // Change of e to i
-    let recovery_rate = 1.0 / (RECOVERY_PERIOD as f32); // Change of i to r
+    let recovery_rate = 1.0 / (DISEASE_PERIOD as f32); // Change of i to r
 
     let mut dydx = vec![
-        /*s*/ NATURAL_BIRTH_RATE * population - (transmission_rate * susceptible * (infected / population as f32)) - (NATURAL_DEATH_RATE * susceptible),
+        /*s*/ NATURAL_BIRTH_RATE * population - ((transmission_rate) * susceptible * (infected / population as f32)) - (NATURAL_DEATH_RATE * susceptible),
         /*e*/ (transmission_rate * susceptible * (infected / population as f32)) - infectiousness_rate * exposed - (NATURAL_DEATH_RATE * exposed),
         /*i*/ (infectiousness_rate * exposed) - (recovery_rate * infected) - (NATURAL_DEATH_RATE * infected),
         /*r*/ (recovery_rate * infected) * (1.0 - MORTALITY_RATE) - NATURAL_DEATH_RATE * recovered,
         /*d*/ (recovery_rate * infected) * MORTALITY_RATE,
-        /*p*/ (NATURAL_BIRTH_RATE * population - NATURAL_DEATH_RATE * population) - ((recovery_rate * infected) * MORTALITY_RATE)
+        /*p*/ (NATURAL_BIRTH_RATE * population - NATURAL_DEATH_RATE * population) - ((recovery_rate * infected) * MORTALITY_RATE),
+        /*h*/ ((infectiousness_rate * exposed) - (recovery_rate * infected) - (NATURAL_DEATH_RATE * infected)) * HOSPITALIZATION_RATE,
     ];
 
     // Adjust for time step h for the integrator
@@ -144,7 +172,7 @@ pub struct InitialValue {
 
 /// Implements a Runge Kutta integrator.
 fn rk4(t0: Vec<InitialValue>, step_size: f32, total_days: u32, f: fn(&Vec<f32>, &[Vec<f32>],  f32, f32) -> Vec<f32>) -> Vec<Vec<f32>> {
-    let initial_zero_values = ((RECOVERY_PERIOD as f32 / step_size) as usize) + 1;
+    let initial_zero_values = ((DISEASE_PERIOD as f32 / step_size) as usize) + 1;
     let mut results = vec![t0.iter().map(|i| i.repeating_before).collect(); initial_zero_values];
     results.push(t0.iter().map(|i| i.value).collect());
     let iterations = f32::floor(total_days as f32 / step_size) as usize;
@@ -168,50 +196,6 @@ predefined_color!(ORANGE, 255, 165, 0, "The predefined orange color");
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /*
-    println!("{}", std::env::current_dir().unwrap().display());
-
-    let file = match load_file::<Vec<ProvinceData>>("./dataset/provinces.json") {
-        Some(v) => v,
-        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
-    };
-    let graph = ProvinceGraph::from(file);
-    //println!("{:#?}", graph);
-
-    let file = match load_file::<Vec<AmountOfCasesPerTownshipPerDayRecord>>("./dataset/COVID-19_aantallen_gemeente_per_dag.json") {
-        Some(v) => v,
-        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
-    };
-
-    let file = match load_file::<Vec<AmountOfCasesPerTownshipCumulative>>("./dataset/COVID-19_aantallen_gemeente_cumulatief.json") {
-        Some(v) => v,
-        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
-    };
-
-    let file2 = match load_file::<Vec<NationalWideCases>>("./dataset/COVID-19_casus_landelijk.json") {
-        Some(v) => v,
-        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
-    };
-    // println!("{:#?}", file2);
-
-    let file3 = match load_file::<Vec<Prevalence>>("./dataset/COVID-19_prevalentie.json") {
-        Some(v) => v,
-        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
-    };
-    // println!("{:#?}", file3);
-
-    let file4 = match load_file::<Vec<ReproductionNumber>>("./dataset/COVID-19_reproductiegetal.json") {
-        Some(v) => v,
-        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
-    };
-    // println!("{:#?}", file4);
-
-    let file5 = match load_file::<Vec<SewageData>>("./dataset/COVID-19_rioolwaterdata.json") {
-        Some(v) => v,
-        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
-    };
-    // println!("{:#?}", file5)
-    */
 
     let t0 : Vec<InitialValue> = vec![
         InitialValue { value: (INITIAL_POPULATION - INITIAL_SPREADERS) as f32, repeating_before: 0.0 }, //Susceptible people
@@ -220,6 +204,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         InitialValue { value: 0.0, repeating_before: 0.0 }, //Recovered people
         InitialValue { value: 0.0, repeating_before: 0.0 }, //Dead people
         InitialValue { value: INITIAL_POPULATION as f32, repeating_before: INITIAL_POPULATION as f32}, // Population
+        InitialValue {value: 0.0, repeating_before: 0.0}, // Hospitalizations
     ];
     let t0len = t0.len();
 
@@ -236,7 +221,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     drawing_area = drawing_area.margin(50,50,50,50);
 
     let mut chart = ChartBuilder::on(&drawing_area)
-        .caption(&format!("SEIRD - Infection rate: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", R_NAUGHT, RECOVERY_PERIOD, MORTALITY_RATE), ("sans-serif", 40).into_font())
+        .caption(&format!("SEIRD - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", R_NAUGHT, DISEASE_PERIOD, MORTALITY_RATE), ("sans-serif", 40).into_font())
         .x_label_area_size(20)
         .y_label_area_size(20)
         //.build_cartesian_2d(0f32..TIMESPAN_IN_DAYS as f32, 0f32..1.0)?;
@@ -252,8 +237,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .y_label_formatter(&|x| format!("{:.3}", x))
         .draw()?;
 
-    let colors = [&ORANGE, &MAGENTA, &RED, &GREEN, &BLACK, &BLUE, &CYAN, &MAGENTA];
-    let labels = ["Susceptible", "Exposed", "Infected", "Recovered", "Deaths", "Population", "dy/dx Infected", "Measures"];
+    let colors = [&ORANGE, &MAGENTA, &RED, &GREEN, &BLACK, &BLUE, &CYAN, &YELLOW];
+    let labels = ["Susceptible", "Exposed", "Infected", "Recovered", "Deaths", "Population", "Hospitalizations", "Measures"];
     for idx in 0..t0len {
 
         let mut points : Vec<(f32, f32)> = generate_range(0.0, TIMESPAN_IN_DAYS as f32, 0.1).into_iter().enumerate().map(|(i, c)| (c, values[i][idx])).collect();
