@@ -10,10 +10,6 @@ use std::io::Read;
 use plotters::{*, prelude::*, drawing::*};
 use crate::NonNanF32;
 
-const fn foobar(a: u32, b: u32) -> u32 {
-    a * b
-}
-
 macro_rules! predefined_color {
     ($name:ident, $r:expr, $g:expr, $b:expr, $doc:expr) => {
         #[doc = $doc]

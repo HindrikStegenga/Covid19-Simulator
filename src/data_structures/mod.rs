@@ -1,4 +1,5 @@
 pub(crate) mod graph;
+pub(crate) mod params;
 
 use serde::{Serialize, Deserialize};
 use crate::data_structures::graph::Province;
