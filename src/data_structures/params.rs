@@ -15,10 +15,30 @@ fn hand_washing(parameters: &SimulationParameters, previous: &Vec<f32>, previous
 
 /// Social distancing reduces transmission by having more distance between people and limits visits etc.
 fn social_distancing(parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> f32 {
-
-    return 0.0
+    let delayed_hospitalizations = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][6];
+    return if delayed_hospitalizations >= 0.1 * parameters.max_hospital_capacity {
+        return 0.1
+    } else { 0.0 }
 }
 
+/// Soft lock down is triggered based on hospital capacity. It reduces transmissions of disease quite a bit
+fn soft_lock_down(parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> f32 {
+    let delayed_hospitalizations = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][6];
+
+    return if delayed_hospitalizations >= 0.3 * parameters.max_hospital_capacity {
+        0.4
+    } else { 0.0 }
+}
+
+/// Hard lock down is triggered based on hospital capacity. It reduces transmissions of disease significantly.
+fn hard_lock_down(parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> f32 {
+
+    let delayed_hospitalizations = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][6];
+
+    return if delayed_hospitalizations >= 0.6 * parameters.max_hospital_capacity {
+        0.2
+    } else { 0.0 }
+}
 
 
 
