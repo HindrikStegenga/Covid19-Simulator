@@ -3,7 +3,7 @@ pub type MeasureFn = dyn Fn(&SimulationParameters, &Vec<f32>, &[Vec<f32>], f32, 
 
 
 /// Hand washing measure triggers at infected > 1% of population
-fn hand_washing(parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> f32 {
+pub fn hand_washing(parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> f32 {
 
     let delayed_population = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][5];
     let delayed_infected = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][2];
@@ -14,7 +14,7 @@ fn hand_washing(parameters: &SimulationParameters, previous: &Vec<f32>, previous
 }
 
 /// Social distancing reduces transmission by having more distance between people and limits visits etc.
-fn social_distancing(parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> f32 {
+pub fn social_distancing(parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> f32 {
     let delayed_hospitalizations = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][6];
     return if delayed_hospitalizations >= 0.1 * parameters.max_hospital_capacity as f32 {
         return 0.1
@@ -22,7 +22,7 @@ fn social_distancing(parameters: &SimulationParameters, previous: &Vec<f32>, pre
 }
 
 /// Soft lock down is triggered based on hospital capacity. It reduces transmissions of disease quite a bit
-fn soft_lock_down(parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> f32 {
+pub fn soft_lock_down(parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> f32 {
     let delayed_hospitalizations = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][6];
 
     return if delayed_hospitalizations >= 0.3 * parameters.max_hospital_capacity as f32{
@@ -31,7 +31,7 @@ fn soft_lock_down(parameters: &SimulationParameters, previous: &Vec<f32>, previo
 }
 
 /// Hard lock down is triggered based on hospital capacity. It reduces transmissions of disease significantly.
-fn hard_lock_down(parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> f32 {
+pub fn hard_lock_down(parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> f32 {
 
     let delayed_hospitalizations = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][6];
 

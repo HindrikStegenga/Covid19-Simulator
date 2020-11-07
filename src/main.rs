@@ -11,6 +11,7 @@ use std::io::Read;
 use plotters::{*, prelude::*, drawing::*};
 use crate::NonNanF32;
 use crate::params::SimulationParameters;
+use crate::data_structures::params::hand_washing;
 
 macro_rules! predefined_color {
     ($name:ident, $r:expr, $g:expr, $b:expr, $doc:expr) => {
@@ -199,7 +200,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             infection_rate: INFECTION_RATE * (1.0 + relative_change),
             hospitalization_rate: HOSPITALIZATION_RATE,
             max_hospital_capacity: MAX_HOSPITAL_CAPACITY ,
-            measures: vec![]
+            measures: vec![
+                Box::from(hand_washing)
+            ]
         };
 
         let t0 : Vec<InitialValue> = vec![
