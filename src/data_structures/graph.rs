@@ -14,6 +14,12 @@ pub struct ProvinceGraph {
     nodes: Vec<Province>
 }
 
+impl ProvinceGraph {
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+}
+
 impl Index<usize> for ProvinceGraph {
     type Output = Province;
 

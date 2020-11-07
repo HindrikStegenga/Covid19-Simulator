@@ -1,6 +1,7 @@
 mod data_structures;
 mod float_helper;
 
+use crate::graph::*;
 pub use float_helper::*;
 pub use data_structures::*;
 
@@ -67,7 +68,7 @@ const NATURAL_DEATH_RATE: f32 = 0.005 / 365.0;
 const DISEASE_PERIOD: usize = 7; // Time it takes for infected people to recover or die.
 const INCUBATION_PERIOD: usize = 7; // Time it takes for exposed people to become sick + infectious.
 const MORTALITY_RATE: f32 = 0.25; // Percentage of infected people who die.
-const TRANSMISSION_RATE: f32 = 2.0;
+const INFECTION_RATE: f32 = 2.0;
 
 const HOSPITALIZATION_RATE: f32 = 0.25; //Amount of recovering people ending up in hospital, thus counting towards max hospital cap.
 const MAX_HOSPITAL_CAPACITY: usize = 25; // Absolute amount of hospital capacity
@@ -121,7 +122,7 @@ fn rate_of_change_with_time(sp: &SimulationParameters, previous: &Vec<f32>, prev
         measures_change += measure(&sp, previous, previous_data, time, h);
     }
 
-    let mut infection_rate = sp.transmission_rate * (1.0 - measures_change); // Change of s to e
+    let mut infection_rate = sp.infection_rate * (1.0 - measures_change); // Change of s to e
     let incubation_rate = 1.0 / (sp.incubation_period_in_days as f32); // Change of e to i
     let recovery_rate = 1.0 / (sp.sickness_period_in_days as f32); // Change of i to r
 
@@ -176,7 +177,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let step_size = 0.1;
 
+    let mut mean_density = 0.0f32;
+    for p in &graph {
+        mean_density += p.density_per_square_km as f32;
+    }
+    mean_density /= graph.len() as f32;
+
     for province in &graph {
+
+        let relative_change: f32 = (province.density_per_square_km as f32 - mean_density) / mean_density;
+
         let parameters = SimulationParameters {
             time_span_in_days: TIMESPAN_IN_DAYS,
             initial_population: province.population as usize,
@@ -186,7 +196,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sickness_period_in_days: DISEASE_PERIOD,
             incubation_period_in_days: INCUBATION_PERIOD,
             mortality_rate: MORTALITY_RATE,
-            transmission_rate: TRANSMISSION_RATE,
+            infection_rate: INFECTION_RATE * (1.0 + relative_change),
             hospitalization_rate: HOSPITALIZATION_RATE,
             max_hospital_capacity: MAX_HOSPITAL_CAPACITY ,
             measures: vec![]
@@ -211,10 +221,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         initial_values.push(t0);
     }
 
-
+    // Execute iterations
     let iterations = f32::floor(TIMESPAN_IN_DAYS as f32 / step_size) as usize;
     for i in 0..iterations-1 {
         for province_idx in 0..province_parameters.len() {
+            let province : &Province = &graph[province_idx];
+
 
 
             let (pr, last) = results[province_idx].split_at(results[province_idx].len() - 1);
@@ -223,6 +235,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Show results
     for province_idx in 0..province_parameters.len() {
         let initial_zero_values = ((province_parameters[province_idx].sickness_period_in_days as f32 / step_size) as usize) + 1;
         results[province_idx] = results[province_idx].split_at(initial_zero_values).1.to_vec();
@@ -230,22 +243,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         draw(&graph[province_idx].name, &initial_values[province_idx], &province_parameters[province_idx], &results[province_idx])?;
     }
 
-    //let mut values = rk4(&t0, 0.1, parameters.time_span_in_days as u32, &parameters, rate_of_change_with_time);
-
-
-
-
-    
-    //values.iter_mut().map(|e|&mut e[6]).for_each(|mut e| *e = *e * 2000.0 + (INITIAL_POPULATION as f32 / 2.0));
-
-
-    //println!("{:#?}", values);
     Ok(())
 }
 
 fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationParameters, rk4_results: &Vec<Vec<f32>>) -> Result<(), Box<dyn std::error::Error>> {
     
-    let max_pop : f32 = rk4_results.iter().map(|v| NonNanF32(v[2])).max().unwrap().0;
+    let max_pop : f32 = rk4_results.iter().map(|v| NonNanF32(v[1])).max().unwrap().0;
     
     let var = String::from(String::from("./output/") + output_file_name) + ".png";
     let mut backend = BitMapBackend::new(&var, (1680,1440));
@@ -255,7 +258,7 @@ fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationP
     drawing_area = drawing_area.margin(50,50,50,50);
 
     let mut chart = ChartBuilder::on(&drawing_area)
-        .caption(&format!("SEIRD - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.transmission_rate, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 40).into_font())
+        .caption(&format!("SEIRD - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.infection_rate, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 40).into_font())
         .x_label_area_size(20)
         .y_label_area_size(20)
         //.build_cartesian_2d(0f32..TIMESPAN_IN_DAYS as f32, 0f32..1.0)?;
