@@ -59,7 +59,7 @@ fn generate_range(start: f32, end: f32, step: f32) -> Vec<f32> {
     vec
 }
 
-const TIMESPAN_IN_DAYS: usize = 400;
+const TIMESPAN_IN_DAYS: usize = 1500;
 const INITIAL_POPULATION: u32 = 1_000;
 const INITIAL_SPREADERS: u32 = 50;
 
@@ -73,6 +73,11 @@ const INFECTION_RATE: f32 = 2.0;
 
 const HOSPITALIZATION_RATE: f32 = 0.25; //Amount of recovering people ending up in hospital, thus counting towards max hospital cap.
 const MAX_HOSPITAL_CAPACITY: usize = 25; // Absolute amount of hospital capacity
+
+const MORNING_RUSH_HOUR: usize = 8;
+const EVENING_RUSH_HOUR: usize = 18;
+const ENABLE_TRAFFIC: bool = false;
+const TRAFFIC_RATE: f32 = 0.0001; // Percentage of S+E which travels to other places
 
 fn rate_of_change_with_time(sp: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> Vec<f32> {
     // S(t) is susceptible
@@ -132,7 +137,7 @@ fn rate_of_change_with_time(sp: &SimulationParameters, previous: &Vec<f32>, prev
         /*e*/ (infection_rate * susceptible * (infected / population as f32)) - incubation_rate * exposed - (sp.natural_death_rate * exposed),
         /*i*/ (incubation_rate * exposed) - (recovery_rate * infected) - (sp.natural_death_rate * infected),
         /*r*/ (recovery_rate * infected) * (1.0 - sp.mortality_rate) - sp.natural_death_rate * recovered,
-        /*d*/ (recovery_rate * infected) * sp.mortality_rate,
+        /*d*/ (recovery_rate * infected) * sp.mortality_rate + sp.natural_death_rate * susceptible + sp.natural_death_rate * exposed + sp.natural_death_rate * infected + sp.natural_death_rate * recovered,
         /*p*/ (sp.natural_birth_rate * population - sp.natural_death_rate * population) - ((recovery_rate * infected) * sp.mortality_rate),
         /*h*/ ((incubation_rate * exposed) - (recovery_rate * infected) - (sp.natural_death_rate * infected)) * sp.hospitalization_rate,
     ];
@@ -191,7 +196,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let parameters = SimulationParameters {
             time_span_in_days: TIMESPAN_IN_DAYS,
             initial_population: province.population as usize,
-            initial_spreaders: INITIAL_SPREADERS as usize,
+            initial_spreaders: if province.name == "Noord-Brabant" { INITIAL_SPREADERS as usize } else { 1 },
             natural_birth_rate: NATURAL_BIRTH_RATE, 
             natural_death_rate: NATURAL_DEATH_RATE,
             sickness_period_in_days: DISEASE_PERIOD,
@@ -200,8 +205,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             infection_rate: INFECTION_RATE * (1.0 + relative_change),
             hospitalization_rate: HOSPITALIZATION_RATE,
             max_hospital_capacity: MAX_HOSPITAL_CAPACITY ,
+            morning_rush_hour: MORNING_RUSH_HOUR,
+            evening_rush_hour: EVENING_RUSH_HOUR,
+            traffic_rate: TRAFFIC_RATE,
             measures: vec![
-                Box::from(hand_washing)
+                //Box::from(hand_washing)
             ]
         };
 
@@ -224,17 +232,73 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         initial_values.push(t0);
     }
 
+    let epsilon_delta = 0.05;
+    let morning_rush_hour_fraction = 1.0 / 24.0 * MORNING_RUSH_HOUR as f32;
+    let evening_rush_hour_fraction = 1.0 / 24.0 * EVENING_RUSH_HOUR as f32;
+
     // Execute iterations
     let iterations = f32::floor(TIMESPAN_IN_DAYS as f32 / step_size) as usize;
     for i in 0..iterations-1 {
         for province_idx in 0..province_parameters.len() {
-            let province : &Province = &graph[province_idx];
-
-
-
             let (pr, last) = results[province_idx].split_at(results[province_idx].len() - 1);
             let new_step = rk4_impl(last.first().unwrap(), pr,i as f32 * step_size, step_size, &province_parameters[province_idx], rate_of_change_with_time);
             results[province_idx].push(new_step);
+        }
+
+        if ENABLE_TRAFFIC {
+
+            let day = i as f32 * step_size;
+            let fractional_part = day.fract();
+
+            if (morning_rush_hour_fraction - fractional_part).abs() < epsilon_delta {
+                println!("{} - {}", day, fractional_part);
+
+                for province_idx in 0..province_parameters.len() {
+                    let connected_count = graph[province_idx].connected_provinces.len();
+                    let province_s = results[province_idx].last().unwrap()[0];
+                    let province_e = results[province_idx].last().unwrap()[1];
+
+                    let delta_s = (province_parameters[province_idx].traffic_rate * province_s);
+                    let delta_e = (province_parameters[province_idx].traffic_rate * province_e);
+                    let delta_p = delta_s + delta_e;
+
+                    for idx in 0..connected_count {
+                        let connected_idx = graph[province_idx].connected_provinces[idx];
+                        results[connected_idx].last_mut().unwrap()[0] += (delta_s / connected_count as f32);
+                        results[connected_idx].last_mut().unwrap()[1] += (delta_e / connected_count as f32);
+                        results[connected_idx].last_mut().unwrap()[5] += (delta_p / connected_count as f32);
+                    }
+
+                    results[province_idx].last_mut().unwrap()[0] -= delta_s;
+                    results[province_idx].last_mut().unwrap()[1] -= delta_e;
+                    results[province_idx].last_mut().unwrap()[5] -= delta_p;
+                }
+            }
+
+            if (evening_rush_hour_fraction - fractional_part).abs() < epsilon_delta {
+                println!("{} - {}", day, fractional_part);
+
+                for province_idx in 0..province_parameters.len() {
+                    let connected_count = graph[province_idx].connected_provinces.len();
+                    let province_s = results[province_idx].last().unwrap()[0];
+                    let province_e = results[province_idx].last().unwrap()[1];
+
+                    let delta_s = (province_parameters[province_idx].traffic_rate * province_s);
+                    let delta_e = (province_parameters[province_idx].traffic_rate * province_e);
+                    let delta_p = delta_s + delta_e;
+
+                    for idx in 0..connected_count {
+                        let connected_idx = graph[province_idx].connected_provinces[idx];
+                        results[connected_idx].last_mut().unwrap()[0] -= (delta_s / connected_count as f32);
+                        results[connected_idx].last_mut().unwrap()[1] -= (delta_e / connected_count as f32);
+                        results[connected_idx].last_mut().unwrap()[5] -= (delta_p / connected_count as f32);
+                    }
+
+                    results[province_idx].last_mut().unwrap()[0] += delta_s;
+                    results[province_idx].last_mut().unwrap()[1] += delta_e;
+                    results[province_idx].last_mut().unwrap()[5] += delta_p;
+                }
+            }
         }
     }
 
@@ -261,7 +325,7 @@ fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationP
     drawing_area = drawing_area.margin(50,50,50,50);
 
     let mut chart = ChartBuilder::on(&drawing_area)
-        .caption(&format!("SEIRD - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.infection_rate, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 40).into_font())
+        .caption(&format!("SEIRD - Infection rate: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.infection_rate, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 40).into_font())
         .x_label_area_size(20)
         .y_label_area_size(20)
         //.build_cartesian_2d(0f32..TIMESPAN_IN_DAYS as f32, 0f32..1.0)?;

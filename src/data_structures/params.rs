@@ -52,5 +52,8 @@ pub struct SimulationParameters {
     pub infection_rate: f32,
     pub hospitalization_rate: f32,
     pub max_hospital_capacity: usize,
+    pub morning_rush_hour: usize,
+    pub evening_rush_hour: usize,
+    pub traffic_rate: f32,
     pub measures: Vec<Box<MeasureFn>>
 }
