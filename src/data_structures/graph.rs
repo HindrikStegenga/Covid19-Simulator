@@ -3,10 +3,10 @@ use std::ops::Index;
 
 #[derive(Debug)]
 pub struct Province {
-    name: String,
-    population: u32,
-    density_per_square_km: u16,
-    connected_provinces: Vec<usize>
+    pub name: String,
+    pub population: u32,
+    pub density_per_square_km: u16,
+    pub connected_provinces: Vec<usize>
 }
 
 #[derive(Debug)]

@@ -64,11 +64,12 @@ const INITIAL_SPREADERS: u32 = 50;
 const NATURAL_BIRTH_RATE: f32 = 0.011 / 365.0; // 6% growth a year
 const NATURAL_DEATH_RATE: f32 = 0.005 / 365.0;
 
-const DISEASE_PERIOD: usize = 14; // Time it takes for infected people to recover or die.
+const DISEASE_PERIOD: usize = 21; // Time it takes for infected people to recover or die.
 const INCUBATION_PERIOD: usize = 7; // Time it takes for exposed people to become sick + infectious.
 const MORTALITY_RATE: f32 = 0.25; // Percentage of infected people who die.
 
-const R_NAUGHT: f32 = 2.0; // 2.0 = t / (1.0/incubation_period)
+const R_NAUGHT: f32 = 5.7;
+const TRANSMISSION_RATE: f32 = 2.0;
 const HOSPITALIZATION_RATE: f32 = 0.25; //Amount of recovering people ending up in hospital, thus counting towards max hospital cap.
 
 const MAX_HOSPITAL_CAPACITY: usize = 25; // Absolute amount of hospital capacity
@@ -125,20 +126,24 @@ fn rate_of_change_with_time(simulation_parameters: &SimulationParameters, previo
         measures_change += measure(&simulation_parameters, previous, previous_data, time, h);
     }
 
-    let base_transmission_rate = R_NAUGHT * (1.0 / INCUBATION_PERIOD as f32);
+    // R0 = beta / gamma -> transmission_rate / recovery_rate
+    // gamma = (1/disease_period)
+    // beta = r0 * gamma
 
-    let mut transmission_rate = base_transmission_rate * (1.0 - measures_change); // Change of s to e
-    let infectiousness_rate = 1.0 / (INCUBATION_PERIOD as f32); // Change of e to i
+    let base_infection_rate = R_NAUGHT * (1.0 / DISEASE_PERIOD as f32);
+
+    let mut infection_rate = base_infection_rate * (1.0 - measures_change); // Change of s to e
+    let incubation_rate = 1.0 / (INCUBATION_PERIOD as f32); // Change of e to i
     let recovery_rate = 1.0 / (DISEASE_PERIOD as f32); // Change of i to r
 
     let mut dydx = vec![
-        /*s*/ NATURAL_BIRTH_RATE * population - ((transmission_rate) * susceptible * (infected / population as f32)) - (NATURAL_DEATH_RATE * susceptible),
-        /*e*/ (transmission_rate * susceptible * (infected / population as f32)) - infectiousness_rate * exposed - (NATURAL_DEATH_RATE * exposed),
-        /*i*/ (infectiousness_rate * exposed) - (recovery_rate * infected) - (NATURAL_DEATH_RATE * infected),
+        /*s*/ NATURAL_BIRTH_RATE * population - ((infection_rate) * susceptible * (infected / population as f32)) - (NATURAL_DEATH_RATE * susceptible),
+        /*e*/ (infection_rate * susceptible * (infected / population as f32)) - incubation_rate * exposed - (NATURAL_DEATH_RATE * exposed),
+        /*i*/ (incubation_rate * exposed) - (recovery_rate * infected) - (NATURAL_DEATH_RATE * infected),
         /*r*/ (recovery_rate * infected) * (1.0 - MORTALITY_RATE) - NATURAL_DEATH_RATE * recovered,
         /*d*/ (recovery_rate * infected) * MORTALITY_RATE,
         /*p*/ (NATURAL_BIRTH_RATE * population - NATURAL_DEATH_RATE * population) - ((recovery_rate * infected) * MORTALITY_RATE),
-        /*h*/ ((infectiousness_rate * exposed) - (recovery_rate * infected) - (NATURAL_DEATH_RATE * infected)) * HOSPITALIZATION_RATE,
+        /*h*/ ((incubation_rate * exposed) - (recovery_rate * infected) - (NATURAL_DEATH_RATE * infected)) * HOSPITALIZATION_RATE,
     ];
 
     // Adjust for time step h for the integrator
@@ -233,7 +238,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationParameters, rk4_results: &Vec<Vec<f32>>) -> Result<(), Box<dyn std::error::Error>> {
     
-    let max_pop : f32 = rk4_results.iter().map(|v| NonNanF32(v[5])).max().unwrap().0;
+    let max_pop : f32 = rk4_results.iter().map(|v| NonNanF32(v[2])).max().unwrap().0;
     
     let var = String::from(String::from("./output/") + output_file_name) + ".png";
     let mut backend = BitMapBackend::new(&var, (1680,1440));
@@ -256,7 +261,8 @@ fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationP
         .x_labels(5)
         .y_labels(5)
         // We can also change the format of the label text
-        .y_label_formatter(&|x| format!("{:.3}", x))
+        .x_label_formatter(&|x| format!("{:.0}", x))
+        .y_label_formatter(&|x| format!("{:.0}", x))
         .draw()?;
 
     let colors = [&ORANGE, &MAGENTA, &RED, &GREEN, &BLACK, &BLUE, &CYAN, &YELLOW];
