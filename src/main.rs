@@ -9,6 +9,7 @@ use std::io::Read;
 
 use plotters::{*, prelude::*, drawing::*};
 use crate::NonNanF32;
+use crate::params::SimulationParameters;
 
 macro_rules! predefined_color {
     ($name:ident, $r:expr, $g:expr, $b:expr, $doc:expr) => {
@@ -75,7 +76,7 @@ const LOCKDOWN_TRIGGER_FRACTION: f32 = 0.6; // Fraction at which lockdown is imp
 const LOCKDOWN_LIFTING_FRACTION: f32 = 0.4; // Fraction at which lockdown is lifted
 const LOCKDOWN_EFFECTIVENESS: f32 = 0.45; // Fraction as to how effective the lockdown is.
 
-fn rate_of_change_with_time(previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> Vec<f32> {
+fn rate_of_change_with_time(simulation_parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> Vec<f32> {
     // S(t) is susceptible
     // E(t) is exposed
     // I(t) is infectious/infected
@@ -119,23 +120,11 @@ fn rate_of_change_with_time(previous: &Vec<f32>, previous_data: &[Vec<f32>], tim
     let population = previous[5];
     //let hospitalizations = previous[6];
 
-    const PI : f32 = std::f32::consts::PI;
-
-    let hospitalizations_delayed = previous_data[previous_data.len() - ((INCUBATION_PERIOD as f32 / h) as usize)][6];
-    let population_delayed = previous_data[previous_data.len() - ((INCUBATION_PERIOD as f32 / h) as usize)][5];
-
     let mut measures_change = 0.0;
-    if infected > population_delayed / 100.0 {
-        measures_change += 0.1;
-    }
-    if hospitalizations_delayed >= 0.4 * MAX_HOSPITAL_CAPACITY {
-        measures_change += 0.4;
-    }
-    if hospitalizations_delayed >= LOCKDOWN_TRIGGER_FRACTION * MAX_HOSPITAL_CAPACITY {
-        measures_change += LOCKDOWN_EFFECTIVENESS;
+    for measure in &simulation_parameters.measures {
+        measures_change += measure(&simulation_parameters, previous, previous_data, time, h);
     }
 
-    // 2.0 = t / (1.0/incubation_period)
     let base_transmission_rate = R_NAUGHT * (1.0 / INCUBATION_PERIOD as f32);
 
     let mut transmission_rate = base_transmission_rate * (1.0 - measures_change); // Change of s to e
@@ -167,24 +156,24 @@ pub struct InitialValue {
 }
 
 /// Implements a Runge Kutta integrator.
-fn rk4(t0: Vec<InitialValue>, step_size: f32, total_days: u32, f: fn(&Vec<f32>, &[Vec<f32>],  f32, f32) -> Vec<f32>) -> Vec<Vec<f32>> {
+fn rk4(t0: Vec<InitialValue>, step_size: f32, total_days: u32, params: &SimulationParameters, f: fn(&SimulationParameters, &Vec<f32>, &[Vec<f32>],  f32, f32) -> Vec<f32>) -> Vec<Vec<f32>> {
     let initial_zero_values = ((DISEASE_PERIOD as f32 / step_size) as usize) + 1;
     let mut results = vec![t0.iter().map(|i| i.repeating_before).collect(); initial_zero_values];
     results.push(t0.iter().map(|i| i.value).collect());
     let iterations = f32::floor(total_days as f32 / step_size) as usize;
     for i in 0..iterations-1 {
         let (pr, last) = results.split_at(results.len() - 1);
-        results.push(rk4_impl(last.first().unwrap(), pr,i as f32 * step_size, step_size, f));
+        results.push(rk4_impl(last.first().unwrap(), pr,i as f32 * step_size, step_size, params, f));
     }
 
     results.split_at(initial_zero_values).1.to_vec()
 }
 
-fn rk4_impl(value:&Vec<f32>, previous_data: &[Vec<f32>], t: f32, h: f32, f: fn(&Vec<f32>, &[Vec<f32>], f32, f32)->Vec<f32>) -> Vec<f32> {
-    let k1: Vec<f32> = f(value, previous_data, t, h).iter().map(|e|e*h).collect();
-    let k2: Vec<f32> = f(&value.iter().enumerate().map(|(idx, e)| e + 0.5 * k1[idx]).collect(), previous_data, t + 0.5 * h, h).iter().map(|e|e*h).collect();
-    let k3: Vec<f32> = f(&value.iter().enumerate().map(|(idx, e)| e + 0.5 * k2[idx]).collect(), previous_data, t + 0.5 * h, h).iter().map(|e|e*h).collect();
-    let k4: Vec<f32> = f(&value.iter().enumerate().map(|(idx, e)| e + k3[idx]).collect(), previous_data, t + h, h).iter().map(|e|e*h).collect();
+fn rk4_impl(value: &Vec<f32>, previous_data: &[Vec<f32>], t: f32, h: f32, params: &SimulationParameters, f: fn(&SimulationParameters, &Vec<f32>, &[Vec<f32>], f32, f32)->Vec<f32>) -> Vec<f32> {
+    let k1: Vec<f32> = f(params, value, previous_data, t, h).iter().map(|e|e*h).collect();
+    let k2: Vec<f32> = f(params, &value.iter().enumerate().map(|(idx, e)| e + 0.5 * k1[idx]).collect(), previous_data, t + 0.5 * h, h).iter().map(|e|e*h).collect();
+    let k3: Vec<f32> = f(params, &value.iter().enumerate().map(|(idx, e)| e + 0.5 * k2[idx]).collect(), previous_data, t + 0.5 * h, h).iter().map(|e|e*h).collect();
+    let k4: Vec<f32> = f(params, &value.iter().enumerate().map(|(idx, e)| e + k3[idx]).collect(), previous_data, t + h, h).iter().map(|e|e*h).collect();
     return value.iter().enumerate().map(|(idx,e)| e + {(1.0/6.0) * (k1[idx] + 2.0 * k2[idx] + 2.0 * k3[idx] + k4[idx])}).collect();
 }
 
@@ -204,7 +193,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
     let t0len = t0.len();
 
-    let mut values = rk4(t0, 0.1, TIMESPAN_IN_DAYS as u32, rate_of_change_with_time);
+
+    let parameters = SimulationParameters {
+        time_span_in_days: 0,
+        initial_population: 0,
+        initial_spreaders: 0,
+        natural_birth_rate: 0.0,
+        natural_death_rate: 0.0,
+        sickness_period_in_days: 0,
+        incubation_period_in_days: 0,
+        mortality_rate: 0.0,
+        r_naught: 0.0,
+        hospitalization_rate: 0.0,
+        max_hospital_capacity: 0,
+        measures: vec![]
+    };
+
+    let mut values = rk4(t0, 0.1, TIMESPAN_IN_DAYS as u32, &parameters, rate_of_change_with_time);
 
     //values.iter_mut().map(|e|&mut e[6]).for_each(|mut e| *e = *e * 2000.0 + (INITIAL_POPULATION as f32 / 2.0));
 
