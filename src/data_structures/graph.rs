@@ -22,7 +22,6 @@ impl Index<usize> for ProvinceGraph {
     }
 }
 
-
 impl From<Vec<ProvinceData>> for ProvinceGraph {
     fn from(provinces: Vec<ProvinceData>) -> Self {
         let mut graph = Self {
@@ -56,5 +55,32 @@ impl From<Vec<ProvinceData>> for ProvinceGraph {
         }
 
         graph
+    }
+}
+
+impl IntoIterator for ProvinceGraph {
+    type Item = Province;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.nodes.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a ProvinceGraph {
+    type Item = &'a Province;
+    type IntoIter = std::slice::Iter<'a, Province>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.nodes.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut ProvinceGraph {
+    type Item = &'a mut Province;
+    type IntoIter = std::slice::IterMut<'a, Province>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.nodes.iter_mut()
     }
 }
