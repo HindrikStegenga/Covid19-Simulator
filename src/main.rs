@@ -71,7 +71,7 @@ const MORTALITY_RATE: f32 = 0.25; // Percentage of infected people who die.
 const R_NAUGHT: f32 = 2.0; // 2.0 = t / (1.0/incubation_period)
 const HOSPITALIZATION_RATE: f32 = 0.25; //Amount of recovering people ending up in hospital, thus counting towards max hospital cap.
 
-const MAX_HOSPITAL_CAPACITY: f32 = 25.0; // Absolute amount of hospital capacity
+const MAX_HOSPITAL_CAPACITY: usize = 25; // Absolute amount of hospital capacity
 const LOCKDOWN_TRIGGER_FRACTION: f32 = 0.6; // Fraction at which lockdown is imposed
 const LOCKDOWN_LIFTING_FRACTION: f32 = 0.4; // Fraction at which lockdown is lifted
 const LOCKDOWN_EFFECTIVENESS: f32 = 0.45; // Fraction as to how effective the lockdown is.
@@ -156,7 +156,7 @@ pub struct InitialValue {
 }
 
 /// Implements a Runge Kutta integrator.
-fn rk4(t0: Vec<InitialValue>, step_size: f32, total_days: u32, params: &SimulationParameters, f: fn(&SimulationParameters, &Vec<f32>, &[Vec<f32>],  f32, f32) -> Vec<f32>) -> Vec<Vec<f32>> {
+fn rk4(t0: &Vec<InitialValue>, step_size: f32, total_days: u32, params: &SimulationParameters, f: fn(&SimulationParameters, &Vec<f32>, &[Vec<f32>],  f32, f32) -> Vec<f32>) -> Vec<Vec<f32>> {
     let initial_zero_values = ((DISEASE_PERIOD as f32 / step_size) as usize) + 1;
     let mut results = vec![t0.iter().map(|i| i.repeating_before).collect(); initial_zero_values];
     results.push(t0.iter().map(|i| i.value).collect());
@@ -182,51 +182,72 @@ predefined_color!(ORANGE, 255, 165, 0, "The predefined orange color");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 
-    let t0 : Vec<InitialValue> = vec![
-        InitialValue { value: (INITIAL_POPULATION - INITIAL_SPREADERS) as f32, repeating_before: 0.0 }, //Susceptible people
-        InitialValue { value: INITIAL_SPREADERS as f32, repeating_before: 0.0 }, //Exposed people
-        InitialValue { value: 0.0 as f32, repeating_before: 0.0 }, //Infected people
-        InitialValue { value: 0.0, repeating_before: 0.0 }, //Recovered people
-        InitialValue { value: 0.0, repeating_before: 0.0 }, //Dead people
-        InitialValue { value: INITIAL_POPULATION as f32, repeating_before: INITIAL_POPULATION as f32}, // Population
-        InitialValue {value: 0.0, repeating_before: 0.0}, // Hospitalizations
-    ];
-    let t0len = t0.len();
-
-
-    let parameters = SimulationParameters {
-        time_span_in_days: 0,
-        initial_population: 0,
-        initial_spreaders: 0,
-        natural_birth_rate: 0.0,
-        natural_death_rate: 0.0,
-        sickness_period_in_days: 0,
-        incubation_period_in_days: 0,
-        mortality_rate: 0.0,
-        r_naught: 0.0,
-        hospitalization_rate: 0.0,
-        max_hospital_capacity: 0,
-        measures: vec![]
+    let file = match load_file::<Vec<ProvinceData>>("./dataset/provinces.json") {
+        Some(v) => v,
+        None => { println!("Could not load file!"); return Err("Could not load file".into()) }
     };
+    //println!("{:#?}", file);
 
-    let mut values = rk4(t0, 0.1, TIMESPAN_IN_DAYS as u32, &parameters, rate_of_change_with_time);
+    let graph = ProvinceGraph::from(file);
 
+    for province in &graph {
+        let parameters = SimulationParameters {
+            time_span_in_days: TIMESPAN_IN_DAYS,
+            initial_population: province.population as usize,
+            initial_spreaders: INITIAL_SPREADERS as usize,
+            natural_birth_rate: NATURAL_BIRTH_RATE, 
+            natural_death_rate: NATURAL_DEATH_RATE,
+            sickness_period_in_days: DISEASE_PERIOD,
+            incubation_period_in_days: INCUBATION_PERIOD,
+            mortality_rate: MORTALITY_RATE,
+            r_naught: R_NAUGHT,
+            hospitalization_rate: HOSPITALIZATION_RATE,
+            max_hospital_capacity: MAX_HOSPITAL_CAPACITY ,
+            measures: vec![]
+        };
+
+        let t0 : Vec<InitialValue> = vec![
+            InitialValue { value: (parameters.initial_population - parameters.initial_spreaders) as f32, repeating_before: 0.0 }, //Susceptible people
+            InitialValue { value: parameters.initial_spreaders as f32, repeating_before: 0.0 }, //Exposed people
+            InitialValue { value: 0.0 as f32, repeating_before: 0.0 }, //Infected people
+            InitialValue { value: 0.0, repeating_before: 0.0 }, //Recovered people
+            InitialValue { value: 0.0, repeating_before: 0.0 }, //Dead people
+            InitialValue { value: parameters.initial_population as f32, repeating_before: parameters.initial_population as f32}, // Population
+            InitialValue {value: 0.0, repeating_before: 0.0}, // Hospitalizations
+        ];
+        let t0len = t0.len();
+
+        let mut values = rk4(&t0, 0.1, parameters.time_span_in_days as u32, &parameters, rate_of_change_with_time);
+
+        draw(&province.name, &t0, &parameters, &values)?;
+    }
+
+
+    
     //values.iter_mut().map(|e|&mut e[6]).for_each(|mut e| *e = *e * 2000.0 + (INITIAL_POPULATION as f32 / 2.0));
 
-    let max_pop : f32 = values.iter().map(|v| NonNanF32(v[5])).max().unwrap().0;
 
-    let mut backend = BitMapBackend::new("./output/test.png", (1680,1440));
+    //println!("{:#?}", values);
+    Ok(())
+}
+
+fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationParameters, rk4_results: &Vec<Vec<f32>>) -> Result<(), Box<dyn std::error::Error>> {
+    
+    let max_pop : f32 = rk4_results.iter().map(|v| NonNanF32(v[5])).max().unwrap().0;
+    
+    let var = String::from(String::from("./output/") + output_file_name) + ".png";
+    let mut backend = BitMapBackend::new(&var, (1680,1440));
     let mut drawing_area = backend.into_drawing_area();
 
     drawing_area.fill(&WHITE);
     drawing_area = drawing_area.margin(50,50,50,50);
 
     let mut chart = ChartBuilder::on(&drawing_area)
-        .caption(&format!("SEIRD - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", R_NAUGHT, DISEASE_PERIOD, MORTALITY_RATE), ("sans-serif", 40).into_font())
+        .caption(&format!("SEIRD - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.r_naught, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 40).into_font())
         .x_label_area_size(20)
         .y_label_area_size(20)
         //.build_cartesian_2d(0f32..TIMESPAN_IN_DAYS as f32, 0f32..1.0)?;
-        .build_cartesian_2d(0f32..TIMESPAN_IN_DAYS as f32, 0f32..(max_pop + 0.1 * max_pop))?;
+        .build_cartesian_2d(0f32..parameters.time_span_in_days as f32, 0f32..(max_pop + 0.1 * max_pop))?;
 
     // Then we can draw a mesh
     chart
@@ -240,9 +261,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let colors = [&ORANGE, &MAGENTA, &RED, &GREEN, &BLACK, &BLUE, &CYAN, &YELLOW];
     let labels = ["Susceptible", "Exposed", "Infected", "Recovered", "Deaths", "Population", "Hospitalizations", "Measures"];
-    for idx in 0..t0len {
+    for idx in 0..t0.len() {
 
-        let mut points : Vec<(f32, f32)> = generate_range(0.0, TIMESPAN_IN_DAYS as f32, 0.1).into_iter().enumerate().map(|(i, c)| (c, values[i][idx])).collect();
+        let mut points : Vec<(f32, f32)> = generate_range(0.0, parameters.time_span_in_days as f32, 0.1).into_iter().enumerate().map(|(i, c)| (c, rk4_results[i][idx])).collect();
 
         chart.draw_series(LineSeries::new(points, colors[idx]))?
             .label(labels[idx])
@@ -255,7 +276,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .background_style(&WHITE.mix(0.8))
         .border_style(&BLACK)
         .draw()?;
-
-    //println!("{:#?}", values);
     Ok(())
 }
