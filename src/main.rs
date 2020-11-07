@@ -64,20 +64,15 @@ const INITIAL_SPREADERS: u32 = 50;
 const NATURAL_BIRTH_RATE: f32 = 0.011 / 365.0; // 6% growth a year
 const NATURAL_DEATH_RATE: f32 = 0.005 / 365.0;
 
-const DISEASE_PERIOD: usize = 21; // Time it takes for infected people to recover or die.
+const DISEASE_PERIOD: usize = 7; // Time it takes for infected people to recover or die.
 const INCUBATION_PERIOD: usize = 7; // Time it takes for exposed people to become sick + infectious.
 const MORTALITY_RATE: f32 = 0.25; // Percentage of infected people who die.
-
-const R_NAUGHT: f32 = 5.7;
 const TRANSMISSION_RATE: f32 = 2.0;
+
 const HOSPITALIZATION_RATE: f32 = 0.25; //Amount of recovering people ending up in hospital, thus counting towards max hospital cap.
-
 const MAX_HOSPITAL_CAPACITY: usize = 25; // Absolute amount of hospital capacity
-const LOCKDOWN_TRIGGER_FRACTION: f32 = 0.6; // Fraction at which lockdown is imposed
-const LOCKDOWN_LIFTING_FRACTION: f32 = 0.4; // Fraction at which lockdown is lifted
-const LOCKDOWN_EFFECTIVENESS: f32 = 0.45; // Fraction as to how effective the lockdown is.
 
-fn rate_of_change_with_time(simulation_parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> Vec<f32> {
+fn rate_of_change_with_time(sp: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> Vec<f32> {
     // S(t) is susceptible
     // E(t) is exposed
     // I(t) is infectious/infected
@@ -122,28 +117,22 @@ fn rate_of_change_with_time(simulation_parameters: &SimulationParameters, previo
     //let hospitalizations = previous[6];
 
     let mut measures_change = 0.0;
-    for measure in &simulation_parameters.measures {
-        measures_change += measure(&simulation_parameters, previous, previous_data, time, h);
+    for measure in &sp.measures {
+        measures_change += measure(&sp, previous, previous_data, time, h);
     }
 
-    // R0 = beta / gamma -> transmission_rate / recovery_rate
-    // gamma = (1/disease_period)
-    // beta = r0 * gamma
-
-    let base_infection_rate = R_NAUGHT * (1.0 / DISEASE_PERIOD as f32);
-
-    let mut infection_rate = base_infection_rate * (1.0 - measures_change); // Change of s to e
-    let incubation_rate = 1.0 / (INCUBATION_PERIOD as f32); // Change of e to i
-    let recovery_rate = 1.0 / (DISEASE_PERIOD as f32); // Change of i to r
+    let mut infection_rate = sp.transmission_rate * (1.0 - measures_change); // Change of s to e
+    let incubation_rate = 1.0 / (sp.incubation_period_in_days as f32); // Change of e to i
+    let recovery_rate = 1.0 / (sp.sickness_period_in_days as f32); // Change of i to r
 
     let mut dydx = vec![
-        /*s*/ NATURAL_BIRTH_RATE * population - ((infection_rate) * susceptible * (infected / population as f32)) - (NATURAL_DEATH_RATE * susceptible),
-        /*e*/ (infection_rate * susceptible * (infected / population as f32)) - incubation_rate * exposed - (NATURAL_DEATH_RATE * exposed),
-        /*i*/ (incubation_rate * exposed) - (recovery_rate * infected) - (NATURAL_DEATH_RATE * infected),
-        /*r*/ (recovery_rate * infected) * (1.0 - MORTALITY_RATE) - NATURAL_DEATH_RATE * recovered,
-        /*d*/ (recovery_rate * infected) * MORTALITY_RATE,
-        /*p*/ (NATURAL_BIRTH_RATE * population - NATURAL_DEATH_RATE * population) - ((recovery_rate * infected) * MORTALITY_RATE),
-        /*h*/ ((incubation_rate * exposed) - (recovery_rate * infected) - (NATURAL_DEATH_RATE * infected)) * HOSPITALIZATION_RATE,
+        /*s*/ sp.natural_birth_rate * population - ((infection_rate) * susceptible * (infected / population as f32)) - (sp.natural_death_rate * susceptible),
+        /*e*/ (infection_rate * susceptible * (infected / population as f32)) - incubation_rate * exposed - (sp.natural_death_rate * exposed),
+        /*i*/ (incubation_rate * exposed) - (recovery_rate * infected) - (sp.natural_death_rate * infected),
+        /*r*/ (recovery_rate * infected) * (1.0 - sp.mortality_rate) - sp.natural_death_rate * recovered,
+        /*d*/ (recovery_rate * infected) * sp.mortality_rate,
+        /*p*/ (sp.natural_birth_rate * population - sp.natural_death_rate * population) - ((recovery_rate * infected) * sp.mortality_rate),
+        /*h*/ ((incubation_rate * exposed) - (recovery_rate * infected) - (sp.natural_death_rate * infected)) * sp.hospitalization_rate,
     ];
 
     // Adjust for time step h for the integrator
@@ -158,20 +147,6 @@ fn rate_of_change_with_time(simulation_parameters: &SimulationParameters, previo
 pub struct InitialValue {
     value: f32,
     repeating_before: f32
-}
-
-/// Implements a Runge Kutta integrator.
-fn rk4(t0: &Vec<InitialValue>, step_size: f32, total_days: u32, params: &SimulationParameters, f: fn(&SimulationParameters, &Vec<f32>, &[Vec<f32>],  f32, f32) -> Vec<f32>) -> Vec<Vec<f32>> {
-    let initial_zero_values = ((DISEASE_PERIOD as f32 / step_size) as usize) + 1;
-    let mut results = vec![t0.iter().map(|i| i.repeating_before).collect(); initial_zero_values];
-    results.push(t0.iter().map(|i| i.value).collect());
-    let iterations = f32::floor(total_days as f32 / step_size) as usize;
-    for i in 0..iterations-1 {
-        let (pr, last) = results.split_at(results.len() - 1);
-        results.push(rk4_impl(last.first().unwrap(), pr,i as f32 * step_size, step_size, params, f));
-    }
-
-    results.split_at(initial_zero_values).1.to_vec()
 }
 
 fn rk4_impl(value: &Vec<f32>, previous_data: &[Vec<f32>], t: f32, h: f32, params: &SimulationParameters, f: fn(&SimulationParameters, &Vec<f32>, &[Vec<f32>], f32, f32)->Vec<f32>) -> Vec<f32> {
@@ -195,6 +170,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let graph = ProvinceGraph::from(file);
 
+    let mut province_parameters: Vec<SimulationParameters> = vec![];
+    let mut initial_values: Vec<Vec<InitialValue>> = vec![];
+    let mut results: Vec<Vec<Vec<f32>>> = vec![];
+
+    let step_size = 0.1;
+
     for province in &graph {
         let parameters = SimulationParameters {
             time_span_in_days: TIMESPAN_IN_DAYS,
@@ -205,7 +186,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sickness_period_in_days: DISEASE_PERIOD,
             incubation_period_in_days: INCUBATION_PERIOD,
             mortality_rate: MORTALITY_RATE,
-            r_naught: R_NAUGHT,
+            transmission_rate: TRANSMISSION_RATE,
             hospitalization_rate: HOSPITALIZATION_RATE,
             max_hospital_capacity: MAX_HOSPITAL_CAPACITY ,
             measures: vec![]
@@ -220,12 +201,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             InitialValue { value: parameters.initial_population as f32, repeating_before: parameters.initial_population as f32}, // Population
             InitialValue {value: 0.0, repeating_before: 0.0}, // Hospitalizations
         ];
-        let t0len = t0.len();
 
-        let mut values = rk4(&t0, 0.1, parameters.time_span_in_days as u32, &parameters, rate_of_change_with_time);
+        let initial_zero_values = ((parameters.sickness_period_in_days as f32 / step_size) as usize) + 1;
+        let mut province_results = vec![t0.iter().map(|i| i.repeating_before).collect(); initial_zero_values];
+        province_results.push(t0.iter().map(|i| i.value).collect());
 
-        draw(&province.name, &t0, &parameters, &values)?;
+        results.push(province_results);
+        province_parameters.push(parameters);
+        initial_values.push(t0);
     }
+
+
+    let iterations = f32::floor(TIMESPAN_IN_DAYS as f32 / step_size) as usize;
+    for i in 0..iterations-1 {
+        for province_idx in 0..province_parameters.len() {
+
+
+            let (pr, last) = results[province_idx].split_at(results[province_idx].len() - 1);
+            let new_step = rk4_impl(last.first().unwrap(), pr,i as f32 * step_size, step_size, &province_parameters[province_idx], rate_of_change_with_time);
+            results[province_idx].push(new_step);
+        }
+    }
+
+    for province_idx in 0..province_parameters.len() {
+        let initial_zero_values = ((province_parameters[province_idx].sickness_period_in_days as f32 / step_size) as usize) + 1;
+        results[province_idx] = results[province_idx].split_at(initial_zero_values).1.to_vec();
+
+        draw(&graph[province_idx].name, &initial_values[province_idx], &province_parameters[province_idx], &results[province_idx])?;
+    }
+
+    //let mut values = rk4(&t0, 0.1, parameters.time_span_in_days as u32, &parameters, rate_of_change_with_time);
+
+
 
 
     
@@ -248,7 +255,7 @@ fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationP
     drawing_area = drawing_area.margin(50,50,50,50);
 
     let mut chart = ChartBuilder::on(&drawing_area)
-        .caption(&format!("SEIRD - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.r_naught, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 40).into_font())
+        .caption(&format!("SEIRD - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.transmission_rate, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 40).into_font())
         .x_label_area_size(20)
         .y_label_area_size(20)
         //.build_cartesian_2d(0f32..TIMESPAN_IN_DAYS as f32, 0f32..1.0)?;
