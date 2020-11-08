@@ -40,6 +40,7 @@ pub fn hard_lock_down(parameters: &SimulationParameters, previous: &Vec<f32>, pr
     } else { 0.0 }
 }
 
+/// Represents all configurable parameters that were set for a particular simulation
 pub struct SimulationParameters {
     pub time_span_in_days: usize,
     pub initial_population: usize,

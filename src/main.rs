@@ -1,72 +1,18 @@
 mod data_structures;
 mod float_helper;
+mod utility;
 
-use crate::graph::*;
 pub use float_helper::*;
 pub use data_structures::*;
+pub use utility::*;
 
 use serde::{Serialize, de::DeserializeOwned};
-use std::io::Read;
+
 
 use plotters::{*, prelude::*, drawing::*};
 use crate::NonNanF32;
 use crate::params::SimulationParameters;
 use crate::data_structures::params::hand_washing;
-
-macro_rules! predefined_color {
-    ($name:ident, $r:expr, $g:expr, $b:expr, $doc:expr) => {
-        #[doc = $doc]
-        pub const $name: RGBColor = RGBColor($r, $g, $b);
-    };
-
-    ($name:ident, $r:expr, $g:expr, $b:expr, $a: expr, $doc:expr) => {
-        #[doc = $doc]
-        pub const $name: RGBAColor = RGBAColor($r, $g, $b, $a);
-    }
-}
-
-
-//use crate::graph::ProvinceGraph;
-
-
-pub fn load_file_bin(path: &str) -> Option<Vec<u8>> {
-    let mut file = std::fs::File::open(path).ok()?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes).ok()?;
-    Some(bytes)
-}
-
-// Function which loads a JSON file and attempts to decode it into T.
-pub fn load_file<T: DeserializeOwned>(path: &str) -> Option<T> {
-    let data = load_file_bin(path)?;
-    let obj: T = match serde_json::from_slice(data.as_slice()) {
-        Ok(v) => v,
-        Err(e) => {
-            println!("{}",e);
-            return None
-        }
-    };
-    Some(obj)
-}
-
-fn generate_range(start: f32, end: f32, step: f32) -> Vec<f32> {
-    assert!(end > start, "End must be larger than start");
-    assert!(step > 0.0, "Step must be larger than 0.0");
-    let steps = f32::ceil((end - start) / step) as usize;
-    let mut vec = Vec::with_capacity(steps);
-    for i in 0..steps+1 {
-        vec.push(start + (i as f32) * step)
-    }
-    vec
-}
-
-fn generate_range_from_input(input_len: usize, step: f32) -> Vec<f32> {
-    let mut vec = Vec::with_capacity(input_len);
-    for i in 0..input_len {
-        vec.push(0.0 + (i as f32) * step)
-    }
-    vec
-}
 
 const TIMESPAN_IN_DAYS: usize = 2 * 365;
 const INITIAL_SPREADERS: u32 = 50;
@@ -155,12 +101,14 @@ fn rate_of_change_with_time(sp: &SimulationParameters, previous: &Vec<f32>, prev
     dydx
 }
 
+/// Represents initial value and what values it needs to repeat before it.
 #[derive(Debug, Copy, Clone)]
 pub struct InitialValue {
     value: f32,
     repeating_before: f32
 }
 
+/// Actual implementation of sampling  and weighing of the 4 points. Works on vectors. Those need to be identical in length.
 fn rk4_impl(value: &Vec<f32>, previous_data: &[Vec<f32>], t: f32, h: f32, params: &SimulationParameters, f: fn(&SimulationParameters, &Vec<f32>, &[Vec<f32>], f32, f32)->Vec<f32>) -> Vec<f32> {
     let k1: Vec<f32> = f(params, value, previous_data, t, h).iter().map(|e|e*h).collect();
     let k2: Vec<f32> = f(params, &value.iter().enumerate().map(|(idx, e)| e + 0.5 * k1[idx]).collect(), previous_data, t + 0.5 * h, h).iter().map(|e|e*h).collect();
@@ -171,15 +119,16 @@ fn rk4_impl(value: &Vec<f32>, previous_data: &[Vec<f32>], t: f32, h: f32, params
 
 predefined_color!(ORANGE, 255, 165, 0, "The predefined orange color");
 
-
+/// main function of the program.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 
+    // Load province data into memory.
     let file = match load_file::<Vec<ProvinceData>>("./dataset/provinces.json") {
         Some(v) => v,
         None => { println!("Could not load file!"); return Err("Could not load file".into()) }
     };
-    //println!("{:#?}", file);
 
+    // Construct graph
     let graph = ProvinceGraph::from(file);
 
     let mut province_parameters: Vec<SimulationParameters> = vec![];
@@ -189,12 +138,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step size to use in the simulation.
     let step_size = 0.1;
 
+    // Compute mean density over provinces.
     let mut mean_density = 0.0f32;
     for p in &graph {
         mean_density += p.density_per_square_km as f32;
     }
     mean_density /= graph.len() as f32;
 
+    // Set up each province's parameters
     for province in &graph {
         // Compute relative change compared to mean density. Used to adjust infection rate.
         let relative_change: f32 = (province.density_per_square_km as f32 - mean_density) / mean_density;
@@ -230,6 +181,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             InitialValue {value: 0.0, repeating_before: 0.0}, // Hospitalizations
         ];
 
+        // Store initial parameters for incubation period days. I.e. delay between what happened and what can be measured.
         let initial_zero_values = ((parameters.incubation_period_in_days as f32 / step_size) as usize) + 1;
         let mut province_results = vec![t0.iter().map(|i| i.repeating_before).collect(); initial_zero_values];
         province_results.push(t0.iter().map(|i| i.value).collect());
@@ -244,8 +196,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Execute iterations
     let iterations = f32::floor(TIMESPAN_IN_DAYS as f32 / step_size) as usize;
     for i in 0..iterations-1 {
+        // Simulate all provinces for this iteration.
         for province_idx in 0..province_parameters.len() {
+            // Determine last and previous data.
             let (pr, last) = results[province_idx].split_at(results[province_idx].len() - 1);
+            // Compute new step's values for this province
             let new_step = rk4_impl(last.first().unwrap(), pr,i as f32 * step_size, step_size, &province_parameters[province_idx], rate_of_change_with_time);
             results[province_idx].push(new_step);
         }
@@ -259,7 +214,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let province_e = results[province_idx].last().unwrap()[1];
                 let delta_e = (province_parameters[province_idx].traffic_rate * province_e * step_size);
 
-
+                // Spread out infected cases over new provinces. Simulates effect of 'travelling'.
                 for idx in 0..connected_count {
                     let connected_idx = graph[province_idx].connected_provinces[idx];
                     if results[connected_idx].last_mut().unwrap()[0] > (delta_e / connected_count as f32) {
@@ -297,7 +252,7 @@ fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationP
     drawing_area = drawing_area.margin(50,50,50,50);
 
     let mut chart = ChartBuilder::on(&drawing_area)
-        .caption(&format!("SEIRD - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.r_naught, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 16).into_font())
+        .caption(&format!("SEIRDS - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.r_naught, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 16).into_font())
         .x_label_area_size(20)
         .y_label_area_size(20)
         .build_cartesian_2d(0f32..parameters.time_span_in_days as f32, 0f32..(max_pop + 0.1 * max_pop))?;
@@ -313,8 +268,8 @@ fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationP
         .y_label_formatter(&|x| format!("{:.0}", x))
         .draw()?;
 
-    let colors = [&ORANGE, &MAGENTA, &RED, &GREEN, &BLACK, &BLUE, &CYAN, &YELLOW];
-    let labels = ["Susceptible", "Exposed", "Infected", "Recovered", "Deaths", "Population", "Hospitalizations", "Measures"];
+    let colors = [&ORANGE, &MAGENTA, &RED, &GREEN, &BLACK, &BLUE, &CYAN];
+    let labels = ["Susceptible", "Exposed", "Infected", "Recovered", "Deaths", "Population", "Hospitalizations"];
     for idx in 0..t0.len() {
 
         let mut points : Vec<(f32, f32)> = generate_range_from_input(rk4_results.len(), step_size).into_iter().enumerate().map(|(i, c)| (c, rk4_results[i][idx])).collect();

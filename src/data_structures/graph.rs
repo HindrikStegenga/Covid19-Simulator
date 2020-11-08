@@ -1,6 +1,7 @@
 use crate::ProvinceData;
 use std::ops::Index;
 
+/// Represents a province and it's properties
 #[derive(Debug)]
 pub struct Province {
     pub name: String,
@@ -9,17 +10,20 @@ pub struct Province {
     pub connected_provinces: Vec<usize>
 }
 
+/// Represents a graph of provinces, where nodes are provinces and edges connect nearby provinces.
 #[derive(Debug)]
 pub struct ProvinceGraph {
     nodes: Vec<Province>
 }
 
 impl ProvinceGraph {
+    /// Returns a mount of nodes
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
 }
 
+/// Trait for indexing into the graph
 impl Index<usize> for ProvinceGraph {
     type Output = Province;
 
@@ -28,6 +32,7 @@ impl Index<usize> for ProvinceGraph {
     }
 }
 
+/// Builds the graph based on an array of provincedata objects
 impl From<Vec<ProvinceData>> for ProvinceGraph {
     fn from(provinces: Vec<ProvinceData>) -> Self {
         let mut graph = Self {
@@ -64,6 +69,7 @@ impl From<Vec<ProvinceData>> for ProvinceGraph {
     }
 }
 
+/// Trait for for loop and iterations
 impl IntoIterator for ProvinceGraph {
     type Item = Province;
     type IntoIter = std::vec::IntoIter<Self::Item>;
@@ -73,6 +79,7 @@ impl IntoIterator for ProvinceGraph {
     }
 }
 
+/// Trait for for loop and iterations
 impl<'a> IntoIterator for &'a ProvinceGraph {
     type Item = &'a Province;
     type IntoIter = std::slice::Iter<'a, Province>;
@@ -82,6 +89,7 @@ impl<'a> IntoIterator for &'a ProvinceGraph {
     }
 }
 
+/// Trait for for loop and iterations
 impl<'a> IntoIterator for &'a mut ProvinceGraph {
     type Item = &'a mut Province;
     type IntoIter = std::slice::IterMut<'a, Province>;
