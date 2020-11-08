@@ -53,13 +53,21 @@ fn generate_range(start: f32, end: f32, step: f32) -> Vec<f32> {
     assert!(step > 0.0, "Step must be larger than 0.0");
     let steps = f32::ceil((end - start) / step) as usize;
     let mut vec = Vec::with_capacity(steps);
-    for i in 0..steps {
+    for i in 0..steps+1 {
         vec.push(start + (i as f32) * step)
     }
     vec
 }
 
-const TIMESPAN_IN_DAYS: usize = 1500;
+fn generate_range_from_input(input_len: usize, step: f32) -> Vec<f32> {
+    let mut vec = Vec::with_capacity(input_len);
+    for i in 0..input_len {
+        vec.push(0.0 + (i as f32) * step)
+    }
+    vec
+}
+
+const TIMESPAN_IN_DAYS: usize = 365;
 const INITIAL_POPULATION: u32 = 1_000;
 const INITIAL_SPREADERS: u32 = 50;
 
@@ -69,13 +77,14 @@ const NATURAL_DEATH_RATE: f32 = 0.005 / 365.0;
 const DISEASE_PERIOD: usize = 7; // Time it takes for infected people to recover or die.
 const INCUBATION_PERIOD: usize = 7; // Time it takes for exposed people to become sick + infectious.
 const MORTALITY_RATE: f32 = 0.25; // Percentage of infected people who die.
-const INFECTION_RATE: f32 = 2.0;
+const R_NAUGHT: f32 = 2.0;
+
+// R0 = beta / gamma
 
 const HOSPITALIZATION_RATE: f32 = 0.25; //Amount of recovering people ending up in hospital, thus counting towards max hospital cap.
 const MAX_HOSPITAL_CAPACITY: usize = 25; // Absolute amount of hospital capacity
 
-const MORNING_RUSH_HOUR: usize = 8;
-const EVENING_RUSH_HOUR: usize = 18;
+const TRAFFIC_HOUR: usize = 18;
 const ENABLE_TRAFFIC: bool = false;
 const TRAFFIC_RATE: f32 = 0.0001; // Percentage of S+E which travels to other places
 
@@ -128,9 +137,11 @@ fn rate_of_change_with_time(sp: &SimulationParameters, previous: &Vec<f32>, prev
         measures_change += measure(&sp, previous, previous_data, time, h);
     }
 
-    let mut infection_rate = sp.infection_rate * (1.0 - measures_change); // Change of s to e
-    let incubation_rate = 1.0 / (sp.incubation_period_in_days as f32); // Change of e to i
     let recovery_rate = 1.0 / (sp.sickness_period_in_days as f32); // Change of i to r
+    let base_infection_rate = sp.r_naught * recovery_rate as f32;
+    let mut infection_rate = base_infection_rate * (1.0 - measures_change); // Change of s to e
+    let incubation_rate = 1.0 / (sp.incubation_period_in_days as f32); // Change of e to i
+
 
     let mut dydx = vec![
         /*s*/ sp.natural_birth_rate * population - ((infection_rate) * susceptible * (infected / population as f32)) - (sp.natural_death_rate * susceptible),
@@ -141,12 +152,6 @@ fn rate_of_change_with_time(sp: &SimulationParameters, previous: &Vec<f32>, prev
         /*p*/ (sp.natural_birth_rate * population - sp.natural_death_rate * population) - ((recovery_rate * infected) * sp.mortality_rate),
         /*h*/ ((incubation_rate * exposed) - (recovery_rate * infected) - (sp.natural_death_rate * infected)) * sp.hospitalization_rate,
     ];
-
-    // Adjust for time step h for the integrator
-    for v in &mut dydx {
-        *v *= h;
-    }
-
     dydx
 }
 
@@ -181,6 +186,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut initial_values: Vec<Vec<InitialValue>> = vec![];
     let mut results: Vec<Vec<Vec<f32>>> = vec![];
 
+    // Step size to use in the simulation.
     let step_size = 0.1;
 
     let mut mean_density = 0.0f32;
@@ -190,29 +196,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     mean_density /= graph.len() as f32;
 
     for province in &graph {
-
+        // Compute relative change compared to mean density. Used to adjust infection rate.
         let relative_change: f32 = (province.density_per_square_km as f32 - mean_density) / mean_density;
 
+        // Set up all parameters of the simulation
         let parameters = SimulationParameters {
             time_span_in_days: TIMESPAN_IN_DAYS,
             initial_population: province.population as usize,
-            initial_spreaders: if province.name == "Noord-Brabant" { INITIAL_SPREADERS as usize } else { 1 },
+            initial_spreaders:  20,// if province.name == "Noord-Brabant" { INITIAL_SPREADERS as usize } else { 0 },
             natural_birth_rate: NATURAL_BIRTH_RATE, 
             natural_death_rate: NATURAL_DEATH_RATE,
             sickness_period_in_days: DISEASE_PERIOD,
             incubation_period_in_days: INCUBATION_PERIOD,
             mortality_rate: MORTALITY_RATE,
-            infection_rate: INFECTION_RATE * (1.0 + relative_change),
+            r_naught: R_NAUGHT * (1.0 + relative_change),
             hospitalization_rate: HOSPITALIZATION_RATE,
             max_hospital_capacity: MAX_HOSPITAL_CAPACITY ,
-            morning_rush_hour: MORNING_RUSH_HOUR,
-            evening_rush_hour: EVENING_RUSH_HOUR,
+            traffic_hour_fraction: TRAFFIC_HOUR,
             traffic_rate: TRAFFIC_RATE,
             measures: vec![
                 //Box::from(hand_washing)
             ]
         };
 
+        // Set up initial values for the system. repating_before are for when DDE's are used.
         let t0 : Vec<InitialValue> = vec![
             InitialValue { value: (parameters.initial_population - parameters.initial_spreaders) as f32, repeating_before: 0.0 }, //Susceptible people
             InitialValue { value: parameters.initial_spreaders as f32, repeating_before: 0.0 }, //Exposed people
@@ -223,7 +230,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             InitialValue {value: 0.0, repeating_before: 0.0}, // Hospitalizations
         ];
 
-        let initial_zero_values = ((parameters.sickness_period_in_days as f32 / step_size) as usize) + 1;
+        let initial_zero_values = ((parameters.incubation_period_in_days as f32 / step_size) as usize) + 1;
         let mut province_results = vec![t0.iter().map(|i| i.repeating_before).collect(); initial_zero_values];
         province_results.push(t0.iter().map(|i| i.value).collect());
 
@@ -232,9 +239,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         initial_values.push(t0);
     }
 
-    let epsilon_delta = 0.05;
-    let morning_rush_hour_fraction = 1.0 / 24.0 * MORNING_RUSH_HOUR as f32;
-    let evening_rush_hour_fraction = 1.0 / 24.0 * EVENING_RUSH_HOUR as f32;
+    let epsilon_delta = 0.01;
+    let traffic_hour_fraction = 1.0 / 24.0 * TRAFFIC_HOUR as f32;
+
+    println!("Simulation in progress...");
 
     // Execute iterations
     let iterations = f32::floor(TIMESPAN_IN_DAYS as f32 / step_size) as usize;
@@ -245,12 +253,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             results[province_idx].push(new_step);
         }
 
+        // This part is responsible for computing traffic between provinces.
         if ENABLE_TRAFFIC {
 
             let day = i as f32 * step_size;
             let fractional_part = day.fract();
 
-            if (morning_rush_hour_fraction - fractional_part).abs() < epsilon_delta {
+            if (traffic_hour_fraction - fractional_part).abs() < epsilon_delta {
                 println!("{} - {}", day, fractional_part);
 
                 for province_idx in 0..province_parameters.len() {
@@ -274,58 +283,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     results[province_idx].last_mut().unwrap()[5] -= delta_p;
                 }
             }
-
-            if (evening_rush_hour_fraction - fractional_part).abs() < epsilon_delta {
-                println!("{} - {}", day, fractional_part);
-
-                for province_idx in 0..province_parameters.len() {
-                    let connected_count = graph[province_idx].connected_provinces.len();
-                    let province_s = results[province_idx].last().unwrap()[0];
-                    let province_e = results[province_idx].last().unwrap()[1];
-
-                    let delta_s = (province_parameters[province_idx].traffic_rate * province_s);
-                    let delta_e = (province_parameters[province_idx].traffic_rate * province_e);
-                    let delta_p = delta_s + delta_e;
-
-                    for idx in 0..connected_count {
-                        let connected_idx = graph[province_idx].connected_provinces[idx];
-                        results[connected_idx].last_mut().unwrap()[0] -= (delta_s / connected_count as f32);
-                        results[connected_idx].last_mut().unwrap()[1] -= (delta_e / connected_count as f32);
-                        results[connected_idx].last_mut().unwrap()[5] -= (delta_p / connected_count as f32);
-                    }
-
-                    results[province_idx].last_mut().unwrap()[0] += delta_s;
-                    results[province_idx].last_mut().unwrap()[1] += delta_e;
-                    results[province_idx].last_mut().unwrap()[5] += delta_p;
-                }
-            }
         }
     }
+
+    println!("Simulation done. Generating graphs...");
 
     // Show results
     for province_idx in 0..province_parameters.len() {
         let initial_zero_values = ((province_parameters[province_idx].sickness_period_in_days as f32 / step_size) as usize) + 1;
         results[province_idx] = results[province_idx].split_at(initial_zero_values).1.to_vec();
 
-        draw(&graph[province_idx].name, &initial_values[province_idx], &province_parameters[province_idx], &results[province_idx])?;
+        draw(&graph[province_idx].name, &initial_values[province_idx], &province_parameters[province_idx], &results[province_idx], step_size)?;
     }
 
     Ok(())
 }
 
-fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationParameters, rk4_results: &Vec<Vec<f32>>) -> Result<(), Box<dyn std::error::Error>> {
+// This function is responsible for plotting the data onto a 2D graph.
+fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationParameters, rk4_results: &Vec<Vec<f32>>, step_size: f32) -> Result<(), Box<dyn std::error::Error>> {
     
-    let max_pop : f32 = rk4_results.iter().map(|v| NonNanF32(v[1])).max().unwrap().0;
+    let max_pop : f32 = rk4_results.iter().map(|v| NonNanF32(v[2])).max().unwrap().0;
     
     let var = String::from(String::from("./output/") + output_file_name) + ".png";
-    let mut backend = BitMapBackend::new(&var, (1680,1440));
+    let mut backend = BitMapBackend::new(&var, (600,600));
     let mut drawing_area = backend.into_drawing_area();
 
     drawing_area.fill(&WHITE);
     drawing_area = drawing_area.margin(50,50,50,50);
 
     let mut chart = ChartBuilder::on(&drawing_area)
-        .caption(&format!("SEIRD - Infection rate: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.infection_rate, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 40).into_font())
+        .caption(&format!("SEIRD - Infection rate: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.r_naught, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 16).into_font())
         .x_label_area_size(20)
         .y_label_area_size(20)
         //.build_cartesian_2d(0f32..TIMESPAN_IN_DAYS as f32, 0f32..1.0)?;
@@ -346,7 +333,7 @@ fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationP
     let labels = ["Susceptible", "Exposed", "Infected", "Recovered", "Deaths", "Population", "Hospitalizations", "Measures"];
     for idx in 0..t0.len() {
 
-        let mut points : Vec<(f32, f32)> = generate_range(0.0, parameters.time_span_in_days as f32, 0.1).into_iter().enumerate().map(|(i, c)| (c, rk4_results[i][idx])).collect();
+        let mut points : Vec<(f32, f32)> = generate_range_from_input(rk4_results.len(), step_size).into_iter().enumerate().map(|(i, c)| (c, rk4_results[i][idx])).collect();
 
         chart.draw_series(LineSeries::new(points, colors[idx]))?
             .label(labels[idx])

@@ -49,11 +49,10 @@ pub struct SimulationParameters {
     pub sickness_period_in_days: usize,
     pub incubation_period_in_days: usize,
     pub mortality_rate: f32,
-    pub infection_rate: f32,
+    pub r_naught: f32,
     pub hospitalization_rate: f32,
     pub max_hospital_capacity: usize,
-    pub morning_rush_hour: usize,
-    pub evening_rush_hour: usize,
+    pub traffic_hour_fraction: usize,
     pub traffic_rate: f32,
     pub measures: Vec<Box<MeasureFn>>
 }
