@@ -14,62 +14,27 @@ use crate::NonNanF32;
 use crate::params::SimulationParameters;
 use crate::data_structures::params::hand_washing;
 
-const TIMESPAN_IN_DAYS: usize = 2 * 365;
-const INITIAL_SPREADERS: u32 = 50;
+const TIMESPAN_IN_DAYS: usize = 1 * 365;
+const INITIAL_SPREADERS: u32 = 1;
 
 const NATURAL_BIRTH_RATE: f32 = 0.011 / 365.0; // 6% growth a year
 const NATURAL_DEATH_RATE: f32 = 0.005 / 365.0;
 
 const DISEASE_PERIOD: usize = 7; // Time it takes for infected people to recover or die.
 const INCUBATION_PERIOD: usize = 7; // Time it takes for exposed people to become sick + infectious.
-const MORTALITY_RATE: f32 = 0.25; // Percentage of infected people who die.
+const MORTALITY_RATE: f32 = 0.03; // Percentage of infected people who die.
 const IMMUNITY_WANING_TIME_IN_DAYS: usize = 30 * 4; // Immunity wanes after 4 months
 
 // R0 = beta / gamma
-const R_NAUGHT: f32 = 2.0;
+const R_NAUGHT: f32 = 2.5;
 
-const HOSPITALIZATION_RATE: f32 = 0.25; //Amount of recovering people ending up in hospital, thus counting towards max hospital cap.
-const MAX_HOSPITAL_CAPACITY: usize = 25; // Absolute amount of hospital capacity
+const HOSPITALIZATION_RATE: f32 = 0.1; //Amount of recovering people ending up in hospital, thus counting towards max hospital cap.
+const MAX_HOSPITAL_CAPACITY: usize = 1250; // Absolute amount of hospital capacity
 
-const ENABLE_TRAFFIC: bool = false;
-const TRAFFIC_RATE: f32 = 0.0001; // Percentage of E which travels to other places
+const ENABLE_TRAFFIC: bool = true;
+const TRAFFIC_RATE: f32 = 0.05; // Percentage of E which travels to other places
 
 fn rate_of_change_with_time(sp: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> Vec<f32> {
-    // S(t) is susceptible
-    // E(t) is exposed
-    // I(t) is infectious/infected
-    // R(t) is recovered
-    // D(t) is deaths
-    // P(t) is population
-
-    // Susceptible equation
-    // ds/dt = b * P - d * s(t) - b * s(t) * i(t) / P
-
-    // Exposed equation
-    // de/dt = b * s(t) * i(t) / P - d * e(t) - q * e(t)
-
-    // Infected equation
-    // di/dt = q * e(t) - r * i(t) - d * i(t)
-
-    // Recovered equation
-    // dr/dt = r * i(t) * (1.0 - k) - (d * r(t))
-
-    // Deaths equation
-    // dd/dt = r * i(t) * k
-
-    // Population equation
-    // dp/dt = (b * P - d * P) - (r * i(t) * k)
-
-    // b is natural birth rate
-    // d is natural death rate
-    // b is transmission rate
-    // q is incubation rate. (1 / incubation time)
-    // r is recovery rate of the disease
-    // k is fatality chance of the disease
-
-    // In our system people die at a rate identical to the recovery rate, hence we multiply the recovery rate as 1 - mortality,
-    // but subtract the whole set of recovered from infectious.
-
     let susceptible = previous[0];
     let exposed = previous[1];
     let infected = previous[2];
@@ -84,11 +49,13 @@ fn rate_of_change_with_time(sp: &SimulationParameters, previous: &Vec<f32>, prev
     }
 
     let recovery_rate = 1.0 / (sp.sickness_period_in_days as f32); // Change of i to r
-    let base_infection_rate = sp.r_naught * recovery_rate as f32;
+    let base_infection_rate = sp.r_naught * recovery_rate as f32; // Change s to e
     let mut infection_rate = base_infection_rate * (1.0 - measures_change); // Change of s to e
     let incubation_rate = 1.0 / (sp.incubation_period_in_days as f32); // Change of e to i
-    let immunity_waning_rate = 1.0 / (sp.immunity_waning_period_in_days as f32);
+    let immunity_waning_rate = 1.0 / (sp.immunity_waning_period_in_days as f32); // Change r to s
 
+
+    // Compute the dy/dx for all differential equations in the system. See the report for the definition and explanation.
     let mut dydx = vec![
         /*s*/ sp.natural_birth_rate * population - ((infection_rate) * susceptible * (infected / population as f32)) - (sp.natural_death_rate * susceptible) + (immunity_waning_rate * recovered),
         /*e*/ (infection_rate * susceptible * (infected / population as f32)) - incubation_rate * exposed - (sp.natural_death_rate * exposed),
@@ -154,7 +121,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let parameters = SimulationParameters {
             time_span_in_days: TIMESPAN_IN_DAYS,
             initial_population: province.population as usize,
-            initial_spreaders:  1, //if province.name == "Noord-Brabant" { INITIAL_SPREADERS as usize } else { 0 },
+            initial_spreaders:  if province.name == "Noord-Brabant" { INITIAL_SPREADERS as usize } else { 0 },
             natural_birth_rate: NATURAL_BIRTH_RATE, 
             natural_death_rate: NATURAL_DEATH_RATE,
             sickness_period_in_days: DISEASE_PERIOD,
@@ -166,7 +133,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_hospital_capacity: MAX_HOSPITAL_CAPACITY,
             traffic_rate: TRAFFIC_RATE,
             measures: vec![
-                //Box::from(hand_washing)
+                //Box::from(hand_washing),
+                //Box::from(social_distancing),
+                //Box::from(soft_lock_down),
+                //Box::from(hard_lock_down),
             ]
         };
 
@@ -242,19 +212,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // This function is responsible for plotting the data onto a 2D graph.
 fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationParameters, rk4_results: &Vec<Vec<f32>>, step_size: f32) -> Result<(), Box<dyn std::error::Error>> {
     
-    let max_pop : f32 = rk4_results.iter().map(|v| NonNanF32(v[2])).max().unwrap().0;
+    let max_pop : f32 = rk4_results.iter().map(|v| NonNanF32(v[1])).max().unwrap().0;
     
     let var = String::from(String::from("./output/") + output_file_name) + ".png";
-    let mut backend = BitMapBackend::new(&var, (800,800));
+    let mut backend = BitMapBackend::new(&var, (600,600));
     let mut drawing_area = backend.into_drawing_area();
 
     drawing_area.fill(&WHITE);
     drawing_area = drawing_area.margin(50,50,50,50);
 
     let mut chart = ChartBuilder::on(&drawing_area)
-        .caption(&format!("SEIRDS - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.r_naught, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 16).into_font())
-        .x_label_area_size(20)
-        .y_label_area_size(20)
+        .caption(&format!("SEIRDS - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.r_naught, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 20).into_font())
+        .set_left_and_bottom_label_area_size(20)
+        .right_y_label_area_size(0)
+        .margin(0)
         .build_cartesian_2d(0f32..parameters.time_span_in_days as f32, 0f32..(max_pop + 0.1 * max_pop))?;
 
     // Then we can draw a mesh

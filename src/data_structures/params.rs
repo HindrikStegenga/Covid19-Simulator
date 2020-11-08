@@ -8,8 +8,8 @@ pub fn hand_washing(parameters: &SimulationParameters, previous: &Vec<f32>, prev
     let delayed_population = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][5];
     let delayed_infected = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][2];
 
-    return if delayed_infected > (delayed_population / 100.0) {
-        0.1
+    return if delayed_infected > 1000.0 {
+        0.15
     } else { 0.0 };
 }
 
@@ -17,7 +17,7 @@ pub fn hand_washing(parameters: &SimulationParameters, previous: &Vec<f32>, prev
 pub fn social_distancing(parameters: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> f32 {
     let delayed_hospitalizations = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][6];
     return if delayed_hospitalizations >= 0.1 * parameters.max_hospital_capacity as f32 {
-        return 0.1
+        return 0.2
     } else { 0.0 }
 }
 
@@ -26,7 +26,7 @@ pub fn soft_lock_down(parameters: &SimulationParameters, previous: &Vec<f32>, pr
     let delayed_hospitalizations = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][6];
 
     return if delayed_hospitalizations >= 0.3 * parameters.max_hospital_capacity as f32{
-        0.4
+        0.3
     } else { 0.0 }
 }
 
@@ -35,8 +35,8 @@ pub fn hard_lock_down(parameters: &SimulationParameters, previous: &Vec<f32>, pr
 
     let delayed_hospitalizations = previous_data[previous_data.len() - ((parameters.incubation_period_in_days as f32 / h) as usize)][6];
 
-    return if delayed_hospitalizations >= 0.6 * parameters.max_hospital_capacity as f32 {
-        0.2
+    return if delayed_hospitalizations >= 0.5 * parameters.max_hospital_capacity as f32 {
+        0.15
     } else { 0.0 }
 }
 
