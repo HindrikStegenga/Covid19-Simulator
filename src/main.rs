@@ -67,8 +67,7 @@ fn generate_range_from_input(input_len: usize, step: f32) -> Vec<f32> {
     vec
 }
 
-const TIMESPAN_IN_DAYS: usize = 365;
-const INITIAL_POPULATION: u32 = 1_000;
+const TIMESPAN_IN_DAYS: usize = 2 * 365;
 const INITIAL_SPREADERS: u32 = 50;
 
 const NATURAL_BIRTH_RATE: f32 = 0.011 / 365.0; // 6% growth a year
@@ -77,16 +76,16 @@ const NATURAL_DEATH_RATE: f32 = 0.005 / 365.0;
 const DISEASE_PERIOD: usize = 7; // Time it takes for infected people to recover or die.
 const INCUBATION_PERIOD: usize = 7; // Time it takes for exposed people to become sick + infectious.
 const MORTALITY_RATE: f32 = 0.25; // Percentage of infected people who die.
-const R_NAUGHT: f32 = 2.0;
+const IMMUNITY_WANING_TIME_IN_DAYS: usize = 30 * 4; // Immunity wanes after 4 months
 
 // R0 = beta / gamma
+const R_NAUGHT: f32 = 2.0;
 
 const HOSPITALIZATION_RATE: f32 = 0.25; //Amount of recovering people ending up in hospital, thus counting towards max hospital cap.
 const MAX_HOSPITAL_CAPACITY: usize = 25; // Absolute amount of hospital capacity
 
-const TRAFFIC_HOUR: usize = 18;
-const ENABLE_TRAFFIC: bool = false;
-const TRAFFIC_RATE: f32 = 0.0001; // Percentage of S+E which travels to other places
+const ENABLE_TRAFFIC: bool = true;
+const TRAFFIC_RATE: f32 = 0.0001; // Percentage of E which travels to other places
 
 fn rate_of_change_with_time(sp: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> Vec<f32> {
     // S(t) is susceptible
@@ -141,13 +140,13 @@ fn rate_of_change_with_time(sp: &SimulationParameters, previous: &Vec<f32>, prev
     let base_infection_rate = sp.r_naught * recovery_rate as f32;
     let mut infection_rate = base_infection_rate * (1.0 - measures_change); // Change of s to e
     let incubation_rate = 1.0 / (sp.incubation_period_in_days as f32); // Change of e to i
-
+    let immunity_waning_rate = 1.0 / (sp.immunity_waning_period_in_days as f32);
 
     let mut dydx = vec![
-        /*s*/ sp.natural_birth_rate * population - ((infection_rate) * susceptible * (infected / population as f32)) - (sp.natural_death_rate * susceptible),
+        /*s*/ sp.natural_birth_rate * population - ((infection_rate) * susceptible * (infected / population as f32)) - (sp.natural_death_rate * susceptible) + (immunity_waning_rate * recovered),
         /*e*/ (infection_rate * susceptible * (infected / population as f32)) - incubation_rate * exposed - (sp.natural_death_rate * exposed),
         /*i*/ (incubation_rate * exposed) - (recovery_rate * infected) - (sp.natural_death_rate * infected),
-        /*r*/ (recovery_rate * infected) * (1.0 - sp.mortality_rate) - sp.natural_death_rate * recovered,
+        /*r*/ (recovery_rate * infected) * (1.0 - sp.mortality_rate) - sp.natural_death_rate * recovered - (immunity_waning_rate * recovered),
         /*d*/ (recovery_rate * infected) * sp.mortality_rate + sp.natural_death_rate * susceptible + sp.natural_death_rate * exposed + sp.natural_death_rate * infected + sp.natural_death_rate * recovered,
         /*p*/ (sp.natural_birth_rate * population - sp.natural_death_rate * population) - ((recovery_rate * infected) * sp.mortality_rate),
         /*h*/ ((incubation_rate * exposed) - (recovery_rate * infected) - (sp.natural_death_rate * infected)) * sp.hospitalization_rate,
@@ -203,16 +202,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let parameters = SimulationParameters {
             time_span_in_days: TIMESPAN_IN_DAYS,
             initial_population: province.population as usize,
-            initial_spreaders:  20,// if province.name == "Noord-Brabant" { INITIAL_SPREADERS as usize } else { 0 },
+            initial_spreaders:  if province.name == "Noord-Brabant" { INITIAL_SPREADERS as usize } else { 0 },
             natural_birth_rate: NATURAL_BIRTH_RATE, 
             natural_death_rate: NATURAL_DEATH_RATE,
             sickness_period_in_days: DISEASE_PERIOD,
             incubation_period_in_days: INCUBATION_PERIOD,
+            immunity_waning_period_in_days: IMMUNITY_WANING_TIME_IN_DAYS,
             mortality_rate: MORTALITY_RATE,
             r_naught: R_NAUGHT * (1.0 + relative_change),
             hospitalization_rate: HOSPITALIZATION_RATE,
-            max_hospital_capacity: MAX_HOSPITAL_CAPACITY ,
-            traffic_hour_fraction: TRAFFIC_HOUR,
+            max_hospital_capacity: MAX_HOSPITAL_CAPACITY,
             traffic_rate: TRAFFIC_RATE,
             measures: vec![
                 //Box::from(hand_washing)
@@ -239,9 +238,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         initial_values.push(t0);
     }
 
-    let epsilon_delta = 0.01;
-    let traffic_hour_fraction = 1.0 / 24.0 * TRAFFIC_HOUR as f32;
-
     println!("Simulation in progress...");
 
     // Execute iterations
@@ -256,31 +252,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // This part is responsible for computing traffic between provinces.
         if ENABLE_TRAFFIC {
 
-            let day = i as f32 * step_size;
-            let fractional_part = day.fract();
+            // Effectively turns a few susceptible people in other provinces into exposed.
+            for province_idx in 0..province_parameters.len() {
+                let connected_count = graph[province_idx].connected_provinces.len();
+                let province_e = results[province_idx].last().unwrap()[1];
+                let delta_e = (province_parameters[province_idx].traffic_rate * province_e * step_size);
 
-            if (traffic_hour_fraction - fractional_part).abs() < epsilon_delta {
-                println!("{} - {}", day, fractional_part);
 
-                for province_idx in 0..province_parameters.len() {
-                    let connected_count = graph[province_idx].connected_provinces.len();
-                    let province_s = results[province_idx].last().unwrap()[0];
-                    let province_e = results[province_idx].last().unwrap()[1];
-
-                    let delta_s = (province_parameters[province_idx].traffic_rate * province_s);
-                    let delta_e = (province_parameters[province_idx].traffic_rate * province_e);
-                    let delta_p = delta_s + delta_e;
-
-                    for idx in 0..connected_count {
-                        let connected_idx = graph[province_idx].connected_provinces[idx];
-                        results[connected_idx].last_mut().unwrap()[0] += (delta_s / connected_count as f32);
+                for idx in 0..connected_count {
+                    let connected_idx = graph[province_idx].connected_provinces[idx];
+                    if results[connected_idx].last_mut().unwrap()[0] > (delta_e / connected_count as f32) {
+                        results[connected_idx].last_mut().unwrap()[0] -= (delta_e / connected_count as f32);
                         results[connected_idx].last_mut().unwrap()[1] += (delta_e / connected_count as f32);
-                        results[connected_idx].last_mut().unwrap()[5] += (delta_p / connected_count as f32);
                     }
-
-                    results[province_idx].last_mut().unwrap()[0] -= delta_s;
-                    results[province_idx].last_mut().unwrap()[1] -= delta_e;
-                    results[province_idx].last_mut().unwrap()[5] -= delta_p;
                 }
             }
         }
@@ -305,7 +289,7 @@ fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationP
     let max_pop : f32 = rk4_results.iter().map(|v| NonNanF32(v[2])).max().unwrap().0;
     
     let var = String::from(String::from("./output/") + output_file_name) + ".png";
-    let mut backend = BitMapBackend::new(&var, (600,600));
+    let mut backend = BitMapBackend::new(&var, (800,800));
     let mut drawing_area = backend.into_drawing_area();
 
     drawing_area.fill(&WHITE);
