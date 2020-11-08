@@ -36,6 +36,7 @@ pub fn load_file_bin(path: &str) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
+// Function which loads a JSON file and attempts to decode it into T.
 pub fn load_file<T: DeserializeOwned>(path: &str) -> Option<T> {
     let data = load_file_bin(path)?;
     let obj: T = match serde_json::from_slice(data.as_slice()) {
@@ -84,7 +85,7 @@ const R_NAUGHT: f32 = 2.0;
 const HOSPITALIZATION_RATE: f32 = 0.25; //Amount of recovering people ending up in hospital, thus counting towards max hospital cap.
 const MAX_HOSPITAL_CAPACITY: usize = 25; // Absolute amount of hospital capacity
 
-const ENABLE_TRAFFIC: bool = true;
+const ENABLE_TRAFFIC: bool = false;
 const TRAFFIC_RATE: f32 = 0.0001; // Percentage of E which travels to other places
 
 fn rate_of_change_with_time(sp: &SimulationParameters, previous: &Vec<f32>, previous_data: &[Vec<f32>], time: f32, h: f32) -> Vec<f32> {
@@ -202,7 +203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let parameters = SimulationParameters {
             time_span_in_days: TIMESPAN_IN_DAYS,
             initial_population: province.population as usize,
-            initial_spreaders:  if province.name == "Noord-Brabant" { INITIAL_SPREADERS as usize } else { 0 },
+            initial_spreaders:  1, //if province.name == "Noord-Brabant" { INITIAL_SPREADERS as usize } else { 0 },
             natural_birth_rate: NATURAL_BIRTH_RATE, 
             natural_death_rate: NATURAL_DEATH_RATE,
             sickness_period_in_days: DISEASE_PERIOD,
@@ -296,10 +297,9 @@ fn draw(output_file_name: &str, t0: &Vec<InitialValue>, parameters: &SimulationP
     drawing_area = drawing_area.margin(50,50,50,50);
 
     let mut chart = ChartBuilder::on(&drawing_area)
-        .caption(&format!("SEIRD - Infection rate: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.r_naught, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 16).into_font())
+        .caption(&format!("SEIRD - R0: {:.1} - Recovery in days: {:.1} - Mortality: {:.2}", parameters.r_naught, parameters.sickness_period_in_days, parameters.mortality_rate), ("sans-serif", 16).into_font())
         .x_label_area_size(20)
         .y_label_area_size(20)
-        //.build_cartesian_2d(0f32..TIMESPAN_IN_DAYS as f32, 0f32..1.0)?;
         .build_cartesian_2d(0f32..parameters.time_span_in_days as f32, 0f32..(max_pop + 0.1 * max_pop))?;
 
     // Then we can draw a mesh
